@@ -11,6 +11,9 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var status: String?
+    @State private var selectedColor: iPhoneColor = .black
+    @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
+    @State private var scene = PhoneScene()
 
     var body: some View {
         ZStack {
@@ -30,8 +33,9 @@ struct ContentView: View {
 
                 do {
                     let phone = try await Entity(contentsOf: url)
+                    phone.name = "iPhone"
                     frame(phone, targetSize: 0.16)
-                    applyPhoneMaterials(to: phone)
+                    applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
 
                     if let environment = try? studioEnvironment() {
                         let ibl = Entity()
@@ -43,14 +47,24 @@ struct ContentView: View {
                         applyIBLReceiver(to: phone, ibl: ibl)
                     }
 
+                    scene.phone = phone
                     content.add(phone)
                     content.cameraTarget = phone
                 } catch {
                     status = error.localizedDescription
                 }
+            } update: { _ in
+                guard let phone = scene.phone else { return }
+                applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
             }
             .realityViewCameraControls(.orbit)
             .ignoresSafeArea()
+
+            VStack {
+                Spacer()
+                PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
+                    .padding(.bottom, 28)
+            }
 
             if let status {
                 Text(status)
@@ -69,14 +83,14 @@ struct ContentView: View {
         entity.position = -bounds.center * scale
     }
 
-    private func applyPhoneMaterials(to entity: Entity) {
+    private func applyPhoneMaterials(to entity: Entity, finish: PhoneFinish) {
         if var model = entity.components[ModelComponent.self] {
-            let material = material(for: entity.name)
+            let material = material(for: entity.name, finish: finish)
             model.materials = Array(repeating: material, count: max(model.materials.count, 1))
             entity.components.set(model)
         }
         for child in entity.children {
-            applyPhoneMaterials(to: child)
+            applyPhoneMaterials(to: child, finish: finish)
         }
     }
 
@@ -87,7 +101,7 @@ struct ContentView: View {
         }
     }
 
-    private func material(for name: String) -> PhysicallyBasedMaterial {
+    private func material(for name: String, finish: PhoneFinish) -> PhysicallyBasedMaterial {
         let key = name.lowercased()
 
         if key.contains("screen") && !key.contains("glass") && !key.contains("edge") {
@@ -100,14 +114,21 @@ struct ContentView: View {
                 clearcoatRoughness: 0.02
             )
         }
-        if key.contains("glass_rough") || key.contains("matte") {
+        // Camera island (Glass_Back), the full rear panel under the logo
+        // (Glass_Rough / Matte), and the Back mesh. These names also contain
+        // "glass", so they must win over the generic glass match.
+        if key.contains("glass_back")
+            || key.contains("glass_rough")
+            || key.contains("matte")
+            || (key.contains("back") && !key.contains("antenna")) {
+            let roughBack = key.contains("glass_rough") || key.contains("matte")
             return pbr(
-                color: NSColor(calibratedRed: 0.07, green: 0.075, blue: 0.08, alpha: 1),
-                metallic: 0,
-                roughness: 0.32,
-                specular: 0.85,
-                clearcoat: 0.35,
-                clearcoatRoughness: 0.25
+                color: finish.back,
+                metallic: finish.backMetallic,
+                roughness: roughBack ? max(finish.backRoughness, 0.28) : finish.backRoughness,
+                specular: 1,
+                clearcoat: roughBack ? 0.45 : finish.backClearcoat,
+                clearcoatRoughness: roughBack ? 0.22 : 0.05
             )
         }
         if key.contains("glass") {
@@ -161,9 +182,9 @@ struct ContentView: View {
                 specular: 0.35
             )
         }
-        if key.contains("edge") || key.contains("back") || key.contains("gray") {
+        if key.contains("edge") || key.contains("gray") {
             return pbr(
-                color: NSColor(calibratedRed: 0.42, green: 0.43, blue: 0.45, alpha: 1),
+                color: finish.frame,
                 metallic: 1,
                 roughness: 0.16,
                 specular: 1
@@ -171,7 +192,7 @@ struct ContentView: View {
         }
 
         return pbr(
-            color: NSColor(calibratedRed: 0.38, green: 0.39, blue: 0.41, alpha: 1),
+            color: finish.frame,
             metallic: 1,
             roughness: 0.18,
             specular: 1
@@ -268,6 +289,74 @@ struct ContentView: View {
             throw CocoaError(.fileReadCorruptFile)
         }
         return try EnvironmentResource(equirectangular: image)
+    }
+}
+
+private final class PhoneScene {
+    var phone: Entity?
+}
+
+private struct PhoneColorPicker: View {
+    @Binding var selection: iPhoneColor
+    @Binding var customColor: Color
+
+    var body: some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                ForEach(iPhoneColor.presets) { color in
+                    Button {
+                        selection = color
+                    } label: {
+                        Circle()
+                            .fill(color.swatch)
+                            .frame(width: 22, height: 22)
+                            .overlay {
+                                Circle()
+                                    .strokeBorder(.white.opacity(0.35), lineWidth: 1)
+                            }
+                            .overlay {
+                                if selection == color {
+                                    Circle()
+                                        .strokeBorder(.white, lineWidth: 2)
+                                        .padding(-4)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help(color.name)
+                    .accessibilityLabel(color.name)
+                    .accessibilityAddTraits(selection == color ? .isSelected : [])
+                }
+
+                Rectangle()
+                    .fill(.white.opacity(0.2))
+                    .frame(width: 1, height: 18)
+
+                ColorPicker("Custom color", selection: $customColor, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+                    .overlay {
+                        if selection == .custom {
+                            Circle()
+                                .strokeBorder(.white, lineWidth: 2)
+                                .padding(-4)
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .help("Custom")
+                    .onChange(of: customColor) { _, _ in
+                        selection = .custom
+                    }
+            }
+
+            Text(selection.name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.78))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.28), radius: 16, y: 6)
     }
 }
 
