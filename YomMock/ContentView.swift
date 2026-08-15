@@ -17,12 +17,19 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            // Dark backdrop behind the transparent RealityView (no visible light
+            // panels), so the lit phone reads clearly and nothing else shows.
+            Color(red: 0.05, green: 0.05, blue: 0.06)
+                .ignoresSafeArea()
+
             RealityView { content in
                 content.camera = .virtual
 
-                if let environment = try? studioEnvironment() {
-                    content.environment = .skybox(environment)
-                }
+                // Don't render the studio skybox: the softbox panels painted in
+                // studioEnvironment() are no longer visible. The same environment
+                // is still used below as an ImageBasedLight, so the phone keeps
+                // getting lit — the lights affect the model without being visible.
+                content.environment = .default
 
                 addStudioLights(to: &content)
 
