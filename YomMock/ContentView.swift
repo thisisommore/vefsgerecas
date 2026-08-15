@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var status: String?
     @State private var selectedColor: iPhoneColor = .black
     @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
+    @State private var zoom: Float = 1
     @State private var scene = PhoneScene()
 
     var body: some View {
@@ -34,7 +35,7 @@ struct ContentView: View {
 
                 let camera = PerspectiveCamera()
                 camera.camera.fieldOfViewInDegrees = 34
-                camera.look(at: .zero, from: [0.15, 0.045, 0.30], relativeTo: nil)
+                camera.look(at: .zero, from: PhoneScene.defaultCameraPosition, relativeTo: nil)
                 content.add(camera)
 
                 guard let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz") else {
@@ -45,6 +46,7 @@ struct ContentView: View {
                 do {
                     let phone = try await Entity(contentsOf: url)
                     phone.name = "iPhone"
+                    scene.phone = phone
                     frame(phone, targetSize: 0.16)
                     applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
                     applyGroundingShadows(to: phone)
@@ -61,9 +63,8 @@ struct ContentView: View {
 
                     let floor = studioFloor(under: phone)
                     applyIBLReceiver(to: floor, ibl: ibl)
+                    scene.floor = floor
                     content.add(floor)
-
-                    scene.phone = phone
                     content.add(phone)
                     content.cameraTarget = phone
                 } catch {
@@ -72,12 +73,20 @@ struct ContentView: View {
             } update: { _ in
                 guard let phone = scene.phone else { return }
                 applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
+                scene.zoom = zoom
+                scene.applyZoom()
             }
             .realityViewCameraControls(.orbit)
             .ignoresSafeArea()
+            .background {
+                ScrollZoomCatcher { event in
+                    zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
+                }
+            }
 
-            VStack {
+            VStack(spacing: 12) {
                 Spacer()
+                ZoomSlider(zoom: $zoom)
                 PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
                     .padding(.bottom, 28)
             }
@@ -94,9 +103,10 @@ struct ContentView: View {
         let bounds = entity.visualBounds(relativeTo: nil)
         let maxDim = max(bounds.extents.x, max(bounds.extents.y, bounds.extents.z))
         guard maxDim > 0 else { return }
-        let scale = targetSize / maxDim
-        entity.scale = SIMD3(repeating: scale)
-        entity.position = -bounds.center * scale
+        scene.baseScale = targetSize / maxDim
+        scene.modelCenter = bounds.center
+        scene.zoom = zoom
+        scene.applyZoom()
     }
 
     private func applyPhoneMaterials(to entity: Entity, finish: PhoneFinish) {
@@ -285,7 +295,142 @@ struct ContentView: View {
 }
 
 private final class PhoneScene {
+    static let defaultCameraPosition = SIMD3<Float>(0.15, 0.045, 0.30)
+    static let minZoom: Float = 0.06
+    static let maxZoom: Float = 21
+
     var phone: Entity?
+    var floor: Entity?
+    var zoom: Float = 1
+    var baseScale: Float = 1
+    var modelCenter = SIMD3<Float>.zero
+
+    static func adjustedZoom(from zoom: Float, event: NSEvent) -> Float {
+        guard event.momentumPhase.isEmpty else { return zoom }
+        let raw = Float(event.scrollingDeltaY)
+        guard abs(raw) > 0.01 else { return zoom }
+        let units = event.hasPreciseScrollingDeltas ? raw / 50 : raw
+        let step = min(max(units, -1), 1)
+        return min(max(zoom * exp(step * 0.04), minZoom), maxZoom)
+    }
+
+    func applyZoom() {
+        guard let phone else { return }
+        let scale = baseScale * zoom
+        guard scale > 0 else { return }
+        phone.scale = SIMD3(repeating: scale)
+        phone.position = -modelCenter * scale
+        if let floor {
+            let bounds = phone.visualBounds(relativeTo: nil)
+            floor.position = [0, bounds.min.y - 0.0004, 0]
+        }
+    }
+}
+
+private struct ZoomSlider: View {
+    @Binding var zoom: Float
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    nudge(-1)
+                } label: {
+                    Image(systemName: "minus.magnifyingglass")
+                }
+                .buttonStyle(.plain)
+                .help("Zoom out")
+                .accessibilityLabel("Zoom out")
+
+                Slider(
+                    value: Binding(
+                        get: { Double(log(zoom)) },
+                        set: { zoom = Float(exp($0)) }
+                    ),
+                    in: Double(log(PhoneScene.minZoom))...Double(log(PhoneScene.maxZoom))
+                )
+                .controlSize(.small)
+                .tint(.black.opacity(0.65))
+                .frame(width: 168)
+                .accessibilityLabel("Zoom")
+
+                Button {
+                    nudge(1)
+                } label: {
+                    Image(systemName: "plus.magnifyingglass")
+                }
+                .buttonStyle(.plain)
+                .help("Zoom in")
+                .accessibilityLabel("Zoom in")
+            }
+
+            Text(zoomLabel)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.black.opacity(0.7))
+        }
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.black.opacity(0.7))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+    }
+
+    private var zoomLabel: String {
+        abs(zoom - 1) < 0.03 ? "Zoom" : String(format: "Zoom %.1f×", zoom)
+    }
+
+    private func nudge(_ direction: Float) {
+        zoom = min(max(zoom * exp(direction * 0.25), PhoneScene.minZoom), PhoneScene.maxZoom)
+    }
+}
+
+/// Observes scroll-wheel / trackpad scroll without intercepting orbit drags.
+private struct ScrollZoomCatcher: NSViewRepresentable {
+    var onScroll: (NSEvent) -> Void
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ view: MonitorView, context: Context) {
+        view.onScroll = onScroll
+    }
+
+    final class MonitorView: NSView {
+        var onScroll: ((NSEvent) -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            installMonitor()
+        }
+
+        deinit {
+            removeMonitor()
+        }
+
+        private func installMonitor() {
+            removeMonitor()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, event.window === self.window else { return event }
+                let location = self.convert(event.locationInWindow, from: nil)
+                guard self.bounds.contains(location) else { return event }
+                self.onScroll?(event)
+                return nil
+            }
+        }
+
+        private func removeMonitor() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+    }
 }
 
 private struct PhoneColorPicker: View {
