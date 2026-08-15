@@ -13,5 +13,6 @@ struct YomMockApp: App {
         WindowGroup {
             ContentView()
         }
+        .defaultSize(width: 960, height: 720)
     }
 }
