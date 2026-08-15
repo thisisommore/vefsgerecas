@@ -44,32 +44,33 @@ enum iPhoneColor: Hashable, Identifiable {
         switch self {
         case .lavender:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.70, green: 0.64, blue: 0.74, alpha: 1),
-                frame: NSColor(calibratedRed: 0.56, green: 0.50, blue: 0.62, alpha: 1)
+                back: NSColor(calibratedRed: 0.68, green: 0.61, blue: 0.73, alpha: 1),
+                frame: NSColor(calibratedRed: 0.52, green: 0.46, blue: 0.58, alpha: 1)
             )
         case .sage:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.60, green: 0.66, blue: 0.54, alpha: 1),
-                frame: NSColor(calibratedRed: 0.48, green: 0.54, blue: 0.43, alpha: 1)
+                back: NSColor(calibratedRed: 0.57, green: 0.64, blue: 0.51, alpha: 1),
+                frame: NSColor(calibratedRed: 0.44, green: 0.50, blue: 0.40, alpha: 1)
             )
         case .mistBlue:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.56, green: 0.68, blue: 0.76, alpha: 1),
-                frame: NSColor(calibratedRed: 0.44, green: 0.56, blue: 0.66, alpha: 1)
+                back: NSColor(calibratedRed: 0.52, green: 0.65, blue: 0.74, alpha: 1),
+                frame: NSColor(calibratedRed: 0.40, green: 0.52, blue: 0.62, alpha: 1)
             )
         case .white:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.92, green: 0.91, blue: 0.88, alpha: 1),
-                frame: NSColor(calibratedRed: 0.82, green: 0.82, blue: 0.80, alpha: 1),
-                metallic: 0.16,
-                roughness: 0.14
+                back: NSColor(calibratedRed: 0.93, green: 0.92, blue: 0.89, alpha: 1),
+                frame: NSColor(calibratedRed: 0.80, green: 0.80, blue: 0.78, alpha: 1),
+                metallic: 0.10,
+                roughness: 0.12,
+                clearcoat: 0.95
             )
         case .black:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.07, green: 0.07, blue: 0.08, alpha: 1),
-                frame: NSColor(calibratedRed: 0.16, green: 0.16, blue: 0.17, alpha: 1),
-                metallic: 0.38,
-                roughness: 0.11,
+                back: NSColor(calibratedRed: 0.035, green: 0.035, blue: 0.04, alpha: 1),
+                frame: NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.11, alpha: 1),
+                metallic: 0.48,
+                roughness: 0.07,
                 clearcoat: 1
             )
         case .custom:
@@ -77,7 +78,7 @@ enum iPhoneColor: Hashable, Identifiable {
                 ?? NSColor(calibratedWhite: 0.5, alpha: 1)
             return PhoneFinish.coloredGlass(
                 back: back,
-                frame: back.blended(with: .black, amount: 0.22)
+                frame: back.blended(with: .black, amount: 0.24)
             )
         }
     }
@@ -93,9 +94,9 @@ struct PhoneFinish {
     static func coloredGlass(
         back: NSColor,
         frame: NSColor,
-        metallic: Float = 0.22,
-        roughness: Float = 0.16,
-        clearcoat: Float = 0.9
+        metallic: Float = 0.18,
+        roughness: Float = 0.10,
+        clearcoat: Float = 1
     ) -> PhoneFinish {
         PhoneFinish(
             back: back,
