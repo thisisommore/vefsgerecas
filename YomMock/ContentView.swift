@@ -17,9 +17,9 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Dark backdrop behind the transparent RealityView (no visible light
-            // panels), so the lit phone reads clearly and nothing else shows.
-            Color(red: 0.05, green: 0.05, blue: 0.06)
+            // White studio backdrop behind the transparent RealityView, so the
+            // lit phone reads clearly against a bright studio background.
+            Color(red: 0.96, green: 0.96, blue: 0.97)
                 .ignoresSafeArea()
 
             RealityView { content in
@@ -263,15 +263,15 @@ struct ContentView: View {
             throw CocoaError(.fileReadCorruptFile)
         }
 
-        context.setFillColor(NSColor(calibratedWhite: 0.07, alpha: 1).cgColor)
+        context.setFillColor(NSColor(calibratedWhite: 0.94, alpha: 1).cgColor)
         context.fill(CGRect(x: 0, y: 0, width: w, height: h))
 
-        // Floor is darker so the phone reads against the studio.
-        context.setFillColor(NSColor(calibratedWhite: 0.04, alpha: 1).cgColor)
+        // Floor is a touch darker so the phone reads against the bright studio.
+        context.setFillColor(NSColor(calibratedWhite: 0.88, alpha: 1).cgColor)
         context.fill(CGRect(x: 0, y: 0, width: w, height: h * 0.28))
 
-        // Ceiling wash.
-        context.setFillColor(NSColor(calibratedWhite: 0.16, alpha: 1).cgColor)
+        // Ceiling wash, slightly brighter.
+        context.setFillColor(NSColor(calibratedWhite: 0.98, alpha: 1).cgColor)
         context.fill(CGRect(x: 0, y: h * 0.78, width: w, height: h * 0.22))
 
         func softbox(_ rect: CGRect, color: NSColor) {
@@ -319,12 +319,12 @@ private struct PhoneColorPicker: View {
                             .frame(width: 22, height: 22)
                             .overlay {
                                 Circle()
-                                    .strokeBorder(.white.opacity(0.35), lineWidth: 1)
+                                    .strokeBorder(.black.opacity(0.3), lineWidth: 1)
                             }
                             .overlay {
                                 if selection == color {
                                     Circle()
-                                        .strokeBorder(.white, lineWidth: 2)
+                                        .strokeBorder(.black.opacity(0.75), lineWidth: 2)
                                         .padding(-4)
                                 }
                             }
@@ -336,7 +336,7 @@ private struct PhoneColorPicker: View {
                 }
 
                 Rectangle()
-                    .fill(.white.opacity(0.2))
+                    .fill(.black.opacity(0.2))
                     .frame(width: 1, height: 18)
 
                 ColorPicker("Custom color", selection: $customColor, supportsOpacity: false)
@@ -345,7 +345,7 @@ private struct PhoneColorPicker: View {
                     .overlay {
                         if selection == .custom {
                             Circle()
-                                .strokeBorder(.white, lineWidth: 2)
+                                .strokeBorder(.black.opacity(0.75), lineWidth: 2)
                                 .padding(-4)
                                 .allowsHitTesting(false)
                         }
@@ -358,12 +358,12 @@ private struct PhoneColorPicker: View {
 
             Text(selection.name)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(.black.opacity(0.7))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .background(.ultraThinMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.28), radius: 16, y: 6)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
     }
 }
 
