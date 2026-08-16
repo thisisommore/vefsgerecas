@@ -121,24 +121,6 @@ struct ContentView: View {
         }
     }
 
-    private func studioFloor(under phone: Entity) -> ModelEntity {
-        var material = PhysicallyBasedMaterial()
-        material.baseColor = .init(tint: NSColor(calibratedWhite: 0.94, alpha: 1))
-        material.metallic = .init(floatLiteral: 0)
-        material.roughness = .init(floatLiteral: 0.58)
-        material.specular = .init(floatLiteral: 0.45)
-
-        let floor = ModelEntity(
-            mesh: .generatePlane(width: 4, depth: 4),
-            materials: [material]
-        )
-        floor.name = "StudioFloor"
-        let bounds = phone.visualBounds(relativeTo: nil)
-        floor.position = [0, bounds.min.y - 0.0004, 0]
-        floor.components.set(GroundingShadowComponent(castsShadow: false, receivesShadow: true))
-        return floor
-    }
-
     private func material(for name: String, finish: PhoneFinish) -> PhysicallyBasedMaterial {
         let key = name.lowercased()
 
