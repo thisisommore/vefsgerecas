@@ -67,12 +67,12 @@ struct ContentView: View {
                     zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
                 }
             }
-
-            VStack(spacing: 12) {
+            VStack {
                 Spacer()
-                ZoomSlider(zoom: $zoom)
-                PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
-                    .padding(.bottom, 28)
+                HStack(spacing: 12) {
+                    PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
+                        .padding(.bottom, 28)
+                }
             }
 
             if let status {
@@ -292,64 +292,6 @@ private final class PhoneScene {
             let bounds = phone.visualBounds(relativeTo: nil)
             floor.position = [0, bounds.min.y - 0.0004, 0]
         }
-    }
-}
-
-private struct ZoomSlider: View {
-    @Binding var zoom: Float
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                Button {
-                    nudge(-1)
-                } label: {
-                    Image(systemName: "minus.magnifyingglass")
-                }
-                .buttonStyle(.plain)
-                .help("Zoom out")
-                .accessibilityLabel("Zoom out")
-
-                Slider(
-                    value: Binding(
-                        get: { Double(log(zoom)) },
-                        set: { zoom = Float(exp($0)) }
-                    ),
-                    in: Double(log(PhoneScene.minZoom))...Double(log(PhoneScene.maxZoom))
-                )
-                .controlSize(.small)
-                .tint(.black.opacity(0.65))
-                .frame(width: 168)
-                .accessibilityLabel("Zoom")
-
-                Button {
-                    nudge(1)
-                } label: {
-                    Image(systemName: "plus.magnifyingglass")
-                }
-                .buttonStyle(.plain)
-                .help("Zoom in")
-                .accessibilityLabel("Zoom in")
-            }
-
-            Text(zoomLabel)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.black.opacity(0.7))
-        }
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(.black.opacity(0.7))
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
-    }
-
-    private var zoomLabel: String {
-        abs(zoom - 1) < 0.03 ? "Zoom" : String(format: "Zoom %.1f×", zoom)
-    }
-
-    private func nudge(_ direction: Float) {
-        zoom = min(max(zoom * exp(direction * 0.25), PhoneScene.minZoom), PhoneScene.maxZoom)
     }
 }
 
