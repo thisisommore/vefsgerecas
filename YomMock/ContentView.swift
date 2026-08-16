@@ -18,17 +18,6 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            RadialGradient(
-                colors: [
-                    Color(red: 0.99, green: 0.99, blue: 0.995),
-                    Color(red: 0.88, green: 0.88, blue: 0.90)
-                ],
-                center: UnitPoint(x: 0.5, y: 0.42),
-                startRadius: 16,
-                endRadius: 640
-            )
-            .ignoresSafeArea()
-
             RealityView { content in
                 content.camera = .virtual
                 content.environment = .default
@@ -38,7 +27,8 @@ struct ContentView: View {
                 camera.look(at: .zero, from: PhoneScene.defaultCameraPosition, relativeTo: nil)
                 content.add(camera)
 
-                guard let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz") else {
+                guard let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz")
+                else {
                     status = "iPhone17.usdz is missing from the app bundle"
                     return
                 }
@@ -47,15 +37,17 @@ struct ContentView: View {
                     let phone = try await Entity(contentsOf: url)
                     phone.name = "iPhone"
                     scene.phone = phone
-                    frame(phone, targetSize: 0.16)
-                    applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
+                    frame(phone, targetSize: 0.08)
+                    applyPhoneMaterials(
+                        to: phone, finish: selectedColor.finish(custom: customColor))
                     applyGroundingShadows(to: phone)
 
                     let ibl = Entity()
                     ibl.name = "IBL"
                     if let environment = try? await StudioEnvironment.resource() {
                         ibl.components.set(
-                            ImageBasedLightComponent(source: .single(environment), intensityExponent: 0.15)
+                            ImageBasedLightComponent(
+                                source: .single(environment), intensityExponent: 0.15)
                         )
                     }
                     content.add(ibl)
@@ -129,7 +121,8 @@ struct ContentView: View {
 
     private func applyGroundingShadows(to entity: Entity) {
         if entity.components.has(ModelComponent.self) {
-            entity.components.set(GroundingShadowComponent(castsShadow: true, receivesShadow: false))
+            entity.components.set(
+                GroundingShadowComponent(castsShadow: true, receivesShadow: false))
         }
         for child in entity.children {
             applyGroundingShadows(to: child)
@@ -178,7 +171,8 @@ struct ContentView: View {
         if key.contains("glass_back")
             || key.contains("glass_rough")
             || key.contains("matte")
-            || (key.contains("back") && !key.contains("antenna")) {
+            || (key.contains("back") && !key.contains("antenna"))
+        {
             let roughBack = key.contains("glass_rough") || key.contains("matte")
             return pbr(
                 color: finish.back,
@@ -415,7 +409,8 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
         private func installMonitor() {
             removeMonitor()
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) {
+                [weak self] event in
                 guard let self, event.window === self.window else { return event }
                 let location = self.convert(event.locationInWindow, from: nil)
                 guard self.bounds.contains(location) else { return event }
