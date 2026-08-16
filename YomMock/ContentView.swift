@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var userMovedCamera = false
     @State private var scene = PhoneScene()
     @State private var timeline = CameraTimeline()
+    @State private var zoomAnimationTask: Task<Void, Never>?
 
     var body: some View {
         ZStack {
@@ -74,7 +75,7 @@ struct ContentView: View {
                 ScrollZoomCatcher { event in
                     guard !timeline.isPlaying else { return }
                     userMovedCamera = true
-                    zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
+                    animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
                 }
             }
             VStack(spacing: 12) {
@@ -109,6 +110,27 @@ struct ContentView: View {
             guard !timeline.isPlaying else { return }
             scene.zoom = value
             scene.applyZoom()
+        }
+    }
+
+    /// Smoothly eases the camera zoom toward a target with a strong ease-out
+    /// curve. Each new scroll event retargets the animation from the current
+    /// value, so rapid scrolling chases the target instead of jumping.
+    private func animateZoom(to target: Float) {
+        zoomAnimationTask?.cancel()
+        let start = zoom
+        let duration: TimeInterval = 0.7
+        let startTime = CACurrentMediaTime()
+        zoomAnimationTask = Task { @MainActor in
+            while !Task.isCancelled {
+                let elapsed = CACurrentMediaTime() - startTime
+                let t = min(Float(elapsed / duration), 1)
+                // Strong ease-out: quintic curve for a long, gentle settle.
+                let eased = 1 - pow(1 - t, 5)
+                zoom = start + (target - start) * eased
+                if t >= 1 { break }
+                try? await Task.sleep(for: .milliseconds(8))
+            }
         }
     }
 
