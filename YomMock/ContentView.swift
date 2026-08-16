@@ -23,7 +23,7 @@ struct ContentView: View {
                 content.environment = .default
 
                 let camera = PerspectiveCamera()
-                camera.camera.fieldOfViewInDegrees = 34
+                camera.camera.fieldOfViewInDegrees = 70
                 camera.look(at: .zero, from: PhoneScene.defaultCameraPosition, relativeTo: nil)
                 content.add(camera)
 
