@@ -14,7 +14,9 @@ struct ContentView: View {
     @State private var selectedColor: iPhoneColor = .black
     @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     @State private var zoom: Float = 1
+    @State private var cameraReady = false
     @State private var scene = PhoneScene()
+    @State private var timeline = CameraTimeline()
 
     var body: some View {
         ZStack {
@@ -23,8 +25,11 @@ struct ContentView: View {
                 content.environment = .default
 
                 let camera = PerspectiveCamera()
+                camera.name = "StudioCamera"
                 camera.camera.fieldOfViewInDegrees = 70
-                camera.look(at: .zero, from: PhoneScene.defaultCameraPosition, relativeTo: nil)
+                camera.look(at: .zero, from: CameraPose.default.position, relativeTo: nil)
+                scene.camera = camera
+                cameraReady = true
                 content.add(camera)
 
                 let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz")!
@@ -54,24 +59,53 @@ struct ContentView: View {
                 } catch {
                     status = error.localizedDescription
                 }
-            } update: { _ in
+            } update: { content in
+                bindCamera(from: content)
+                if !timeline.isPlaying {
+                    scene.syncPoseFromCamera(zoom: zoom)
+                    timeline.seedStartPoseIfDefault(scene.pose)
+                }
                 guard let phone = scene.phone else { return }
                 applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
                 scene.zoom = zoom
                 scene.applyZoom()
             }
-            .realityViewCameraControls(.orbit)
+            .realityViewCameraControls(timeline.isPlaying ? .none : .orbit)
             .ignoresSafeArea()
             .background {
                 ScrollZoomCatcher { event in
-                    zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
+                    guard !timeline.isPlaying else { return }
+                    let next = PhoneScene.adjustedZoom(from: zoom, event: event)
+                    zoom = next
+                    scene.pose = scene.pose.withZoom(next)
                 }
             }
-            VStack {
+            VStack(spacing: 12) {
                 Spacer()
-                HStack(spacing: 12) {
-                    PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
-                        .padding(.bottom, 28)
+                PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
+                TimelineBar(timeline: timeline, cameraAvailable: cameraReady) {
+                    saveCheckpoint()
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+            }
+            .onChange(of: timeline.currentTime) { _, _ in
+                guard timeline.isPlaying else { return }
+                applyEvaluatedPose()
+            }
+            .onChange(of: timeline.isPlaying) { _, playing in
+                if playing {
+                    applyEvaluatedPose()
+                }
+            }
+            .task(id: timeline.isPlaying) {
+                guard timeline.isPlaying else { return }
+                var last = CACurrentMediaTime()
+                while !Task.isCancelled, timeline.isPlaying {
+                    let now = CACurrentMediaTime()
+                    timeline.advance(by: now - last)
+                    last = now
+                    try? await Task.sleep(for: .milliseconds(8))
                 }
             }
 
@@ -81,6 +115,37 @@ struct ContentView: View {
                     .padding()
             }
         }
+    }
+
+    private func saveCheckpoint() {
+        timeline.upsert(pose: scene.capturePose(), at: timeline.currentTime)
+    }
+
+    private func applyEvaluatedPose() {
+        let pose = timeline.evaluatedPose()
+        scene.apply(pose)
+        zoom = pose.zoom
+    }
+
+    private func bindCamera(from content: RealityViewCameraContent) {
+        if let camera = findCamera(in: content.entities) {
+            scene.camera = camera
+            if !cameraReady {
+                cameraReady = true
+            }
+        }
+    }
+
+    private func findCamera<S: Sequence>(in entities: S) -> Entity? where S.Element == Entity {
+        for entity in entities {
+            if entity.components.has(PerspectiveCameraComponent.self) {
+                return entity
+            }
+            if let nested = findCamera(in: entity.children) {
+                return nested
+            }
+        }
+        return nil
     }
 
     private func frame(_ entity: Entity, targetSize: Float) {
@@ -263,15 +328,34 @@ struct ContentView: View {
 }
 
 private final class PhoneScene {
-    static let defaultCameraPosition = SIMD3<Float>(0.15, 0.045, 0.30)
     static let minZoom: Float = 0.06
     static let maxZoom: Float = 21
 
+    var camera: Entity?
     var phone: Entity?
     var floor: Entity?
-    var zoom: Float = 1
+    var pose = CameraPose.default
+    var zoom: Float = CameraPose.default.zoom
     var baseScale: Float = 1
     var modelCenter = SIMD3<Float>.zero
+
+    func apply(_ pose: CameraPose) {
+        self.pose = pose
+        zoom = pose.zoom
+        camera?.look(at: .zero, from: pose.position, relativeTo: nil)
+        applyZoom()
+    }
+
+    func syncPoseFromCamera(zoom: Float) {
+        guard let camera else { return }
+        let position = camera.position(relativeTo: nil)
+        guard simd_length(position) > 1e-4 else { return }
+        pose = CameraPose(position: position, zoom: zoom)
+    }
+
+    func capturePose() -> CameraPose {
+        pose.withZoom(zoom)
+    }
 
     static func adjustedZoom(from zoom: Float, event: NSEvent) -> Float {
         guard event.momentumPhase.isEmpty else { return zoom }
