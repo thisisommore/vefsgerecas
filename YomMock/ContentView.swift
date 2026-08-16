@@ -49,10 +49,6 @@ struct ContentView: View {
                     content.add(ibl)
                     applyIBLReceiver(to: phone, ibl: ibl)
 
-                    let floor = studioFloor(under: phone)
-                    applyIBLReceiver(to: floor, ibl: ibl)
-                    scene.floor = floor
-                    content.add(floor)
                     content.add(phone)
                     content.cameraTarget = phone
                 } catch {
