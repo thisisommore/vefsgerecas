@@ -27,11 +27,7 @@ struct ContentView: View {
                 camera.look(at: .zero, from: PhoneScene.defaultCameraPosition, relativeTo: nil)
                 content.add(camera)
 
-                guard let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz")
-                else {
-                    status = "iPhone17.usdz is missing from the app bundle"
-                    return
-                }
+                let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz")!
 
                 do {
                     let phone = try await Entity(contentsOf: url)
