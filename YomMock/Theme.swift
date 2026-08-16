@@ -36,6 +36,12 @@ extension Color {
         light: Color(red: 0.953, green: 0.953, blue: 0.957),
         dark: Color(red: 0.145, green: 0.153, blue: 0.169)
     )
+
+    /// Camera-lane tint, distinct from the accent-colored zoom lane.
+    static let timelineCamera = Color.dynamic(
+        light: Color(red: 0.475, green: 0.329, blue: 0.812),
+        dark: Color(red: 0.647, green: 0.541, blue: 0.949)
+    )
 }
 
 private struct CardShadow: ViewModifier {

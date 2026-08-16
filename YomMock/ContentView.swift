@@ -28,7 +28,7 @@ struct ContentView: View {
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
                 camera.camera.fieldOfViewInDegrees = 70
-                camera.look(at: .zero, from: CameraPose.default.position, relativeTo: nil)
+                camera.look(at: .zero, from: OrbitPose.default.position, relativeTo: nil)
                 scene.camera = camera
                 cameraReady = true
                 content.add(camera)
@@ -64,7 +64,7 @@ struct ContentView: View {
                 bindCamera(from: content)
                 if !timeline.isPlaying {
                     scene.syncPoseFromCamera(zoom: zoom)
-                    timeline.seedStartPoseIfDefault(scene.pose)
+                    timeline.seedBasePoseIfDefault(scene.orbitPose)
                 }
                 guard let phone = scene.phone else { return }
                 applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
@@ -76,17 +76,20 @@ struct ContentView: View {
             .background {
                 ScrollZoomCatcher { event in
                     guard !timeline.isPlaying else { return }
-                    let next = PhoneScene.adjustedZoom(from: zoom, event: event)
-                    zoom = next
-                    scene.pose = scene.pose.withZoom(next)
+                    zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
                 }
             }
             VStack(spacing: 12) {
                 Spacer()
                 PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
-                TimelineBar(timeline: timeline, cameraAvailable: cameraReady) {
-                    saveCheckpoint()
-                }
+                TimelineBar(
+                    timeline: timeline,
+                    cameraAvailable: cameraReady,
+                    onAddZoomRange: addZoomRange,
+                    onAddOrbitRange: addOrbitRange,
+                    onUpdateZoomFromScene: updateZoomFromScene,
+                    onUpdateOrbitFromScene: updateOrbitFromScene
+                )
                 .padding(.horizontal, 24)
                 .padding(.bottom, 16)
             }
@@ -117,15 +120,29 @@ struct ContentView: View {
         }
     }
 
-    private func saveCheckpoint() {
+    private func addZoomRange() {
         scene.syncPoseFromCamera(zoom: zoom)
-        timeline.upsert(pose: scene.capturePose(), at: timeline.currentTime)
+        timeline.addZoomRange(at: timeline.currentTime, zoom: zoom)
+    }
+
+    private func addOrbitRange() {
+        scene.syncPoseFromCamera(zoom: zoom)
+        timeline.addOrbitRange(at: timeline.currentTime, pose: scene.captureOrbitPose())
+    }
+
+    private func updateZoomFromScene() {
+        timeline.updateSelectedZoom(zoom)
+    }
+
+    private func updateOrbitFromScene() {
+        scene.syncPoseFromCamera(zoom: zoom)
+        timeline.updateSelectedOrbit(scene.captureOrbitPose())
     }
 
     private func applyEvaluatedPose() {
-        let pose = timeline.evaluatedPose()
-        scene.apply(pose)
-        zoom = pose.zoom
+        let state = timeline.evaluatedState()
+        scene.apply(orbit: state.orbit, zoom: state.zoom)
+        zoom = state.zoom
     }
 
     private func bindCamera(from content: RealityViewCameraContent) {
@@ -335,15 +352,15 @@ private final class PhoneScene {
     var camera: Entity?
     var phone: Entity?
     var floor: Entity?
-    var pose = CameraPose.default
-    var zoom: Float = CameraPose.default.zoom
+    var orbitPose = OrbitPose.default
+    var zoom: Float = 1
     var baseScale: Float = 1
     var modelCenter = SIMD3<Float>.zero
 
-    func apply(_ pose: CameraPose) {
-        self.pose = pose
-        zoom = pose.zoom
-        camera?.look(at: .zero, from: pose.position, relativeTo: nil)
+    func apply(orbit: OrbitPose, zoom: Float) {
+        orbitPose = orbit
+        self.zoom = zoom
+        camera?.look(at: .zero, from: orbit.position, relativeTo: nil)
         applyZoom()
     }
 
@@ -351,11 +368,12 @@ private final class PhoneScene {
         guard let camera else { return }
         let position = camera.position(relativeTo: nil)
         guard simd_length(position) > 1e-4 else { return }
-        pose = CameraPose(position: position, zoom: zoom)
+        orbitPose = OrbitPose(position: position)
+        self.zoom = zoom
     }
 
-    func capturePose() -> CameraPose {
-        pose.withZoom(zoom)
+    func captureOrbitPose() -> OrbitPose {
+        orbitPose
     }
 
     static func adjustedZoom(from zoom: Float, event: NSEvent) -> Float {
