@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     @State private var zoom: Float = 1
     @State private var cameraReady = false
+    @State private var userMovedCamera = false
     @State private var scene = PhoneScene()
     @State private var timeline = CameraTimeline()
 
@@ -27,7 +28,7 @@ struct ContentView: View {
 
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
-                camera.camera.fieldOfViewInDegrees = 70
+                camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
                 camera.look(at: .zero, from: OrbitPose.default.position, relativeTo: nil)
                 scene.camera = camera
                 cameraReady = true
@@ -39,7 +40,7 @@ struct ContentView: View {
                     let phone = try await Entity(contentsOf: url)
                     phone.name = "iPhone"
                     scene.phone = phone
-                    frame(phone, targetSize: 0.08)
+                    frame(phone, targetSize: 0.05)
                     applyPhoneMaterials(
                         to: phone, finish: selectedColor.finish(custom: customColor))
                     applyGroundingShadows(to: phone)
@@ -56,26 +57,23 @@ struct ContentView: View {
                     applyIBLReceiver(to: phone, ibl: ibl)
 
                     content.add(phone)
-                    content.cameraTarget = phone
+                    // Don't set cameraTarget — orbit controls use the target
+                    // bounds to pick a tight starting distance.
+                    scene.apply(orbit: .default, zoom: zoom)
                 } catch {
                     status = error.localizedDescription
                 }
             } update: { content in
                 bindCamera(from: content)
-                if !timeline.isPlaying {
-                    scene.syncPoseFromCamera(zoom: zoom)
-                    timeline.seedBasePoseIfDefault(scene.orbitPose)
-                }
-                guard let phone = scene.phone else { return }
-                applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
-                scene.zoom = zoom
-                scene.applyZoom()
+                guard !timeline.isPlaying else { return }
+                holdStudioFramingIfNeeded()
             }
             .realityViewCameraControls(timeline.isPlaying ? .none : .orbit)
             .ignoresSafeArea()
             .background {
                 ScrollZoomCatcher { event in
                     guard !timeline.isPlaying else { return }
+                    userMovedCamera = true
                     zoom = PhoneScene.adjustedZoom(from: zoom, event: event)
                 }
             }
@@ -93,30 +91,24 @@ struct ContentView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 16)
             }
-            .onChange(of: timeline.currentTime) { _, _ in
-                applyEvaluatedPose()
-            }
-            .onChange(of: timeline.isPlaying) { _, playing in
-                if playing {
-                    applyEvaluatedPose()
-                }
-            }
-            .task(id: timeline.isPlaying) {
-                guard timeline.isPlaying else { return }
-                var last = CACurrentMediaTime()
-                while !Task.isCancelled, timeline.isPlaying {
-                    let now = CACurrentMediaTime()
-                    timeline.advance(by: now - last)
-                    last = now
-                    try? await Task.sleep(for: .milliseconds(8))
-                }
-            }
+            TimelinePlaybackDriver(timeline: timeline, apply: applyEvaluatedPose)
 
             if let status {
                 Text(status)
                     .foregroundStyle(.red)
                     .padding()
             }
+        }
+        .onChange(of: selectedColor) { _, _ in
+            refreshMaterials()
+        }
+        .onChange(of: customColor) { _, _ in
+            refreshMaterials()
+        }
+        .onChange(of: zoom) { _, value in
+            guard !timeline.isPlaying else { return }
+            scene.zoom = value
+            scene.applyZoom()
         }
     }
 
@@ -142,28 +134,52 @@ struct ContentView: View {
     private func applyEvaluatedPose() {
         let state = timeline.evaluatedState()
         scene.apply(orbit: state.orbit, zoom: state.zoom)
-        zoom = state.zoom
+        if zoom != state.zoom {
+            zoom = state.zoom
+        }
+    }
+
+    private func holdStudioFramingIfNeeded() {
+        scene.syncPoseFromCamera(zoom: zoom)
+        if !userMovedCamera {
+            let live = scene.orbitPose
+            let studio = OrbitPose.default
+            var yawDelta = live.yaw - studio.yaw
+            if yawDelta > .pi { yawDelta -= 2 * .pi }
+            if yawDelta < -.pi { yawDelta += 2 * .pi }
+            // Orbit auto-fit mostly changes radius. Treat a real yaw/pitch
+            // change as the user taking over; otherwise keep the studio shot.
+            if abs(yawDelta) > 0.08 || abs(live.pitch - studio.pitch) > 0.08 {
+                userMovedCamera = true
+            } else {
+                scene.apply(orbit: studio, zoom: zoom)
+                return
+            }
+        }
+        timeline.seedBasePoseIfDefault(scene.orbitPose)
+    }
+
+    private func refreshMaterials() {
+        guard let phone = scene.phone else { return }
+        applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
     }
 
     private func bindCamera(from content: RealityViewCameraContent) {
-        if let camera = findCamera(in: content.entities) {
-            scene.camera = camera
-            if !cameraReady {
-                cameraReady = true
+        // Only inspect root entities — cameras live there. Walking the USDZ
+        // would redo a full scene traversal every update.
+        for entity in content.entities {
+            guard var perspective = entity.components[PerspectiveCameraComponent.self] else {
+                continue
+            }
+            scene.camera = entity
+            if abs(perspective.fieldOfViewInDegrees - PhoneScene.fieldOfView) > 0.01 {
+                perspective.fieldOfViewInDegrees = PhoneScene.fieldOfView
+                entity.components.set(perspective)
             }
         }
-    }
-
-    private func findCamera<S: Sequence>(in entities: S) -> Entity? where S.Element == Entity {
-        for entity in entities {
-            if entity.components.has(PerspectiveCameraComponent.self) {
-                return entity
-            }
-            if let nested = findCamera(in: entity.children) {
-                return nested
-            }
+        if !cameraReady, scene.camera != nil {
+            cameraReady = true
         }
-        return nil
     }
 
     private func frame(_ entity: Entity, targetSize: Float) {
@@ -346,6 +362,7 @@ struct ContentView: View {
 }
 
 private final class PhoneScene {
+    static let fieldOfView: Float = 100
     static let minZoom: Float = 0.06
     static let maxZoom: Float = 21
 
@@ -360,7 +377,7 @@ private final class PhoneScene {
     func apply(orbit: OrbitPose, zoom: Float) {
         orbitPose = orbit
         self.zoom = zoom
-        camera?.look(at: .zero, from: orbit.position, relativeTo: nil)
+        applyCamera(from: orbit.position)
         applyZoom()
     }
 
@@ -383,6 +400,17 @@ private final class PhoneScene {
         let units = event.hasPreciseScrollingDeltas ? raw / 50 : raw
         let step = min(max(units, -1), 1)
         return min(max(zoom * exp(step * 0.04), minZoom), maxZoom)
+    }
+
+    private func applyCamera(from position: SIMD3<Float>) {
+        guard let camera else { return }
+        if var perspective = camera.components[PerspectiveCameraComponent.self],
+            abs(perspective.fieldOfViewInDegrees - Self.fieldOfView) > 0.01
+        {
+            perspective.fieldOfViewInDegrees = Self.fieldOfView
+            camera.components.set(perspective)
+        }
+        camera.look(at: .zero, from: position, relativeTo: nil)
     }
 
     func applyZoom() {
@@ -529,6 +557,40 @@ private struct StudioBackdrop: View {
             )
         }
         .ignoresSafeArea()
+    }
+}
+
+/// Drives playhead ticks and pose apply without invalidating the RealityView
+/// on every frame — ContentView must not read `currentTime` in its body.
+private struct TimelinePlaybackDriver: View {
+    @Bindable var timeline: CameraTimeline
+    var apply: () -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: timeline.currentTime) { _, _ in
+                if !timeline.isPlaying {
+                    apply()
+                }
+            }
+            .onChange(of: timeline.isPlaying) { _, playing in
+                if playing {
+                    apply()
+                }
+            }
+            .task(id: timeline.isPlaying) {
+                guard timeline.isPlaying else { return }
+                var last = CACurrentMediaTime()
+                while !Task.isCancelled, timeline.isPlaying {
+                    let now = CACurrentMediaTime()
+                    timeline.advance(by: now - last)
+                    last = now
+                    apply()
+                    try? await Task.sleep(for: .milliseconds(8))
+                }
+            }
     }
 }
 

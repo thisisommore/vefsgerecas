@@ -12,7 +12,7 @@ nonisolated struct OrbitPose: Equatable, Sendable {
     var pitch: Float
     var radius: Float
 
-    static let `default` = OrbitPose(position: SIMD3<Float>(0.15, 0.045, 0.30))
+    static let `default` = OrbitPose(position: SIMD3<Float>(2.10, 0.63, 4.20))
 
     init(yaw: Float, pitch: Float, radius: Float) {
         self.yaw = yaw
@@ -39,7 +39,7 @@ nonisolated struct OrbitPose: Equatable, Sendable {
     }
 }
 
-nonisolated protocol TimelineRange: Identifiable, Equatable, Sendable {
+nonisolated protocol TimelineRange: Identifiable, Equatable, Sendable where ID == UUID {
     var start: TimeInterval { get set }
     var end: TimeInterval { get set }
 }
@@ -139,7 +139,10 @@ final class CameraTimeline {
 
     func advance(by dt: TimeInterval) {
         guard isPlaying else { return }
-        currentTime = min(max(currentTime + dt, 0), duration)
+        let next = min(max(currentTime + dt, 0), duration)
+        if next != currentTime {
+            currentTime = next
+        }
         if currentTime >= duration {
             isPlaying = false
         }
@@ -179,7 +182,9 @@ final class CameraTimeline {
 
     func updateOrbitRange(_ updated: OrbitRange) {
         guard orbitRanges.contains(where: { $0.id == updated.id }) else { return }
-        orbitRanges = orbitRanges.map { $0.id == updated.id ? clamped(updated, in: orbitRanges) : $0 }
+        orbitRanges = orbitRanges.map {
+            $0.id == updated.id ? clamped(updated, in: orbitRanges) : $0
+        }
         orbitRanges.sort { $0.start < $1.start }
     }
 
@@ -214,7 +219,7 @@ final class CameraTimeline {
     }
 
     func seedBasePoseIfDefault(_ pose: OrbitPose) {
-        guard orbitRanges.isEmpty else { return }
+        guard orbitRanges.isEmpty, pose != basePose else { return }
         basePose = pose
     }
 
@@ -224,6 +229,8 @@ final class CameraTimeline {
             return 1
         }
         let progress = rangeEnvelope(at: t, start: range.start, end: range.end)
+        if progress <= 0 { return 1 }
+        if progress >= 1 { return range.zoom }
         return 1 + (range.zoom - 1) * progress
     }
 
@@ -233,6 +240,8 @@ final class CameraTimeline {
             return basePose
         }
         let progress = rangeEnvelope(at: t, start: range.start, end: range.end)
+        if progress <= 0 { return basePose }
+        if progress >= 1 { return range.pose }
         return basePose.interpolated(to: range.pose, t: progress)
     }
 
@@ -243,7 +252,8 @@ final class CameraTimeline {
 
     /// 0 at the base value, 1 fully inside the range, with eased ramps at both
     /// ends. Ranges pinned to a timeline edge hold full value from that edge.
-    private func rangeEnvelope(at t: TimeInterval, start: TimeInterval, end: TimeInterval) -> Float {
+    private func rangeEnvelope(at t: TimeInterval, start: TimeInterval, end: TimeInterval) -> Float
+    {
         let length = max(0.001, end - start)
         let transition = min(Self.maximumTransition, max(0.12, length / 2.4))
         let entry = start <= 0.001 ? TimeInterval.zero : transition
@@ -263,6 +273,10 @@ final class CameraTimeline {
         in ranges: [R]
     ) -> ClosedRange<TimeInterval>? {
         let t = min(max(time, 0), duration)
+        // A playhead strictly inside another range has no legal gap.
+        if ranges.contains(where: { t > $0.start && t < $0.end }) {
+            return nil
+        }
         let lower = ranges.filter { $0.end <= t }.map(\.end).max() ?? 0
         let upper = ranges.filter { $0.start >= t }.map(\.start).min() ?? duration
         let gap = upper - lower
@@ -282,7 +296,8 @@ final class CameraTimeline {
 
         var result = updated
         if abs(updated.length - current.length) < 0.000_1 {
-            let start = min(max(updated.start, lowerBound), max(lowerBound, upperBound - current.length))
+            let start = min(
+                max(updated.start, lowerBound), max(lowerBound, upperBound - current.length))
             result.start = start
             result.end = start + current.length
         } else {
@@ -340,6 +355,9 @@ nonisolated struct Spherical: Equatable {
         var delta = end - start
         if delta > .pi { delta -= 2 * .pi }
         if delta < -.pi { delta += 2 * .pi }
-        return start + delta * t
+        var result = start + delta * t
+        while result > .pi { result -= 2 * .pi }
+        while result < -.pi { result += 2 * .pi }
+        return result
     }
 }

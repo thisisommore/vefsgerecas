@@ -256,7 +256,7 @@ private struct RangeLane<R: TimelineRange>: View {
 
                     tickMarks(width: width)
 
-                    ForEach(ranges) { range in
+                    ForEach(ranges, id: \.id) { range in
                         let bounds = neighborBounds(for: range)
                         RangeBlock(
                             range: range,
