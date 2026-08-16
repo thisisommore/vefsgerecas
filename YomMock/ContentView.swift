@@ -43,7 +43,7 @@ struct ContentView: View {
                     if let environment = try? await StudioEnvironment.resource() {
                         ibl.components.set(
                             ImageBasedLightComponent(
-                                source: .single(environment), intensityExponent: 0.15)
+                                source: .single(environment), intensityExponent: -3.0)
                         )
                     }
                     content.add(ibl)
