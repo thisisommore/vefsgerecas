@@ -19,8 +19,55 @@ struct ContentView: View {
     @State private var scene = PhoneScene()
     @State private var timeline = CameraTimeline()
     @State private var zoomAnimationTask: Task<Void, Never>?
+    @State private var inspectorTab: InspectorTab = .phone
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                preview
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                InspectorPanel(
+                    selectedColor: $selectedColor,
+                    customColor: $customColor,
+                    zoom: $zoom,
+                    selectedTab: $inspectorTab,
+                    cameraAvailable: cameraReady,
+                    timeline: timeline,
+                    onUpdateZoomFromScene: updateZoomFromScene,
+                    onUpdateOrbitFromScene: updateOrbitFromScene
+                )
+                .frame(width: 268)
+            }
+            .frame(minHeight: 330)
+
+            Divider()
+
+            TimelineBar(
+                timeline: timeline,
+                cameraAvailable: cameraReady,
+                onAddZoomRange: addZoomRange,
+                onAddOrbitRange: addOrbitRange,
+                onUpdateZoomFromScene: updateZoomFromScene,
+                onUpdateOrbitFromScene: updateOrbitFromScene
+            )
+            .frame(height: 148)
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: selectedColor) { _, _ in
+            refreshMaterials()
+        }
+        .onChange(of: customColor) { _, _ in
+            refreshMaterials()
+        }
+        .onChange(of: zoom) { _, value in
+            guard !timeline.isPlaying else { return }
+            scene.zoom = value
+            scene.applyZoom()
+        }
+    }
+
+    private var preview: some View {
         ZStack {
             StudioBackdrop()
             RealityView { content in
@@ -70,7 +117,6 @@ struct ContentView: View {
                 holdStudioFramingIfNeeded()
             }
             .realityViewCameraControls(timeline.isPlaying ? .none : .orbit)
-            .ignoresSafeArea()
             .background {
                 ScrollZoomCatcher { event in
                     guard !timeline.isPlaying else { return }
@@ -78,20 +124,7 @@ struct ContentView: View {
                     animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
                 }
             }
-            VStack(spacing: 12) {
-                Spacer()
-                PhoneColorPicker(selection: $selectedColor, customColor: $customColor)
-                TimelineBar(
-                    timeline: timeline,
-                    cameraAvailable: cameraReady,
-                    onAddZoomRange: addZoomRange,
-                    onAddOrbitRange: addOrbitRange,
-                    onUpdateZoomFromScene: updateZoomFromScene,
-                    onUpdateOrbitFromScene: updateOrbitFromScene
-                )
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-            }
+
             TimelinePlaybackDriver(timeline: timeline, apply: applyEvaluatedPose)
 
             if let status {
@@ -100,17 +133,7 @@ struct ContentView: View {
                     .padding()
             }
         }
-        .onChange(of: selectedColor) { _, _ in
-            refreshMaterials()
-        }
-        .onChange(of: customColor) { _, _ in
-            refreshMaterials()
-        }
-        .onChange(of: zoom) { _, value in
-            guard !timeline.isPlaying else { return }
-            scene.zoom = value
-            scene.applyZoom()
-        }
+        .clipped()
     }
 
     /// Smoothly eases the camera zoom toward a target with a strong ease-out
@@ -383,7 +406,7 @@ struct ContentView: View {
     }
 }
 
-private final class PhoneScene {
+final class PhoneScene {
     static let fieldOfView: Float = 100
     static let minZoom: Float = 0.06
     static let maxZoom: Float = 21
@@ -494,70 +517,6 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
                 self.monitor = nil
             }
         }
-    }
-}
-
-private struct PhoneColorPicker: View {
-    @Binding var selection: iPhoneColor
-    @Binding var customColor: Color
-
-    var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 12) {
-                ForEach(iPhoneColor.presets) { color in
-                    Button {
-                        selection = color
-                    } label: {
-                        Circle()
-                            .fill(color.swatch)
-                            .frame(width: 22, height: 22)
-                            .overlay {
-                                Circle()
-                                    .strokeBorder(.primary.opacity(0.3), lineWidth: 1)
-                            }
-                            .overlay {
-                                if selection == color {
-                                    Circle()
-                                        .strokeBorder(.primary.opacity(0.9), lineWidth: 2)
-                                        .padding(-4)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .help(color.name)
-                    .accessibilityLabel(color.name)
-                    .accessibilityAddTraits(selection == color ? .isSelected : [])
-                }
-
-                Rectangle()
-                    .fill(.primary.opacity(0.2))
-                    .frame(width: 1, height: 18)
-
-                ColorPicker("Custom color", selection: $customColor, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 28, height: 28)
-                    .overlay {
-                        if selection == .custom {
-                            Circle()
-                                .strokeBorder(.primary.opacity(0.9), lineWidth: 2)
-                                .padding(-4)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                    .help("Custom")
-                    .onChange(of: customColor) { _, _ in
-                        selection = .custom
-                    }
-            }
-
-            Text(selection.name)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.primary.opacity(0.75))
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .background(.regularMaterial, in: Capsule())
-        .cardShadow()
     }
 }
 

@@ -44,21 +44,4 @@ extension Color {
     )
 }
 
-private struct CardShadow: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
 
-    func body(content: Content) -> some View {
-        content.shadow(
-            color: .black.opacity(colorScheme == .dark ? 0.5 : 0.15),
-            radius: 16,
-            y: 6
-        )
-    }
-}
-
-extension View {
-    /// Soft card shadow that stays visible on dark backgrounds too.
-    func cardShadow() -> some View {
-        modifier(CardShadow())
-    }
-}

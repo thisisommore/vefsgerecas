@@ -14,70 +14,85 @@ struct TimelineBar: View {
     var onUpdateOrbitFromScene: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 0) {
             HStack(spacing: 10) {
+                Text("TIMELINE")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.75)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
                 playbackControls
                 timeReadout
                 Spacer(minLength: 12)
                 durationControls
             }
+            .padding(.horizontal, 16)
+            .frame(height: 31)
 
-            RangeLane(
-                title: "ZOOM",
-                tint: .accentColor,
-                coordinateSpaceName: "zoomLane",
-                showsKnob: true,
-                ranges: timeline.zoomRanges,
-                duration: timeline.duration,
-                currentTime: timeline.currentTime,
-                selection: timeline.selectedZoomRangeID,
-                controlsDisabled: !cameraAvailable || timeline.isPlaying,
-                label: { String(format: "%.2gx", $0.zoom) },
-                onAdd: onAddZoomRange,
-                onSelect: { range in
-                    timeline.selectedZoomRangeID = range.id
-                    timeline.selectedOrbitRangeID = nil
-                    timeline.seek(to: range.start)
-                },
-                onChange: { timeline.updateZoomRange($0) },
-                onRemove: { timeline.removeZoomRange(id: $0) },
-                onUpdateFromScene: onUpdateZoomFromScene,
-                onSeek: scrub
-            )
+            Divider()
 
-            RangeLane(
-                title: "CAMERA",
-                tint: .timelineCamera,
-                coordinateSpaceName: "orbitLane",
-                showsKnob: false,
-                ranges: timeline.orbitRanges,
-                duration: timeline.duration,
-                currentTime: timeline.currentTime,
-                selection: timeline.selectedOrbitRangeID,
-                controlsDisabled: !cameraAvailable || timeline.isPlaying,
-                label: { orbitLabel($0.pose) },
-                onAdd: onAddOrbitRange,
-                onSelect: { range in
-                    timeline.selectedOrbitRangeID = range.id
-                    timeline.selectedZoomRangeID = nil
-                    timeline.seek(to: range.start)
-                },
-                onChange: { timeline.updateOrbitRange($0) },
-                onRemove: { timeline.removeOrbitRange(id: $0) },
-                onUpdateFromScene: onUpdateOrbitFromScene,
-                onSeek: scrub
-            )
+            VStack(alignment: .leading, spacing: 8) {
+                RangeLane(
+                    title: "ZOOM",
+                    tint: .accentColor,
+                    coordinateSpaceName: "zoomLane",
+                    showsKnob: true,
+                    ranges: timeline.zoomRanges,
+                    duration: timeline.duration,
+                    currentTime: timeline.currentTime,
+                    selection: timeline.selectedZoomRangeID,
+                    controlsDisabled: !cameraAvailable || timeline.isPlaying,
+                    label: { String(format: "%.2gx", $0.zoom) },
+                    onAdd: onAddZoomRange,
+                    onSelect: { range in
+                        timeline.selectedZoomRangeID = range.id
+                        timeline.selectedOrbitRangeID = nil
+                        timeline.seek(to: range.start)
+                    },
+                    onChange: { timeline.updateZoomRange($0) },
+                    onRemove: { timeline.removeZoomRange(id: $0) },
+                    onUpdateFromScene: onUpdateZoomFromScene,
+                    onSeek: scrub
+                )
 
-            if timeline.zoomRanges.isEmpty && timeline.orbitRanges.isEmpty {
-                Text("Orbit or zoom the scene, then tap + on a track to add a range at the playhead.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.primary.opacity(0.5))
+                RangeLane(
+                    title: "CAMERA",
+                    tint: .timelineCamera,
+                    coordinateSpaceName: "orbitLane",
+                    showsKnob: false,
+                    ranges: timeline.orbitRanges,
+                    duration: timeline.duration,
+                    currentTime: timeline.currentTime,
+                    selection: timeline.selectedOrbitRangeID,
+                    controlsDisabled: !cameraAvailable || timeline.isPlaying,
+                    label: { orbitLabel($0.pose) },
+                    onAdd: onAddOrbitRange,
+                    onSelect: { range in
+                        timeline.selectedOrbitRangeID = range.id
+                        timeline.selectedZoomRangeID = nil
+                        timeline.seek(to: range.start)
+                    },
+                    onChange: { timeline.updateOrbitRange($0) },
+                    onRemove: { timeline.removeOrbitRange(id: $0) },
+                    onUpdateFromScene: onUpdateOrbitFromScene,
+                    onSeek: scrub
+                )
+
+                if timeline.zoomRanges.isEmpty && timeline.orbitRanges.isEmpty {
+                    Text("Orbit or zoom the scene, then tap + on a track to add a range at the playhead.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary.opacity(0.5))
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .cardShadow()
+        .background(Color(nsColor: .controlBackgroundColor))
     }
 
     private var playbackControls: some View {
