@@ -90,7 +90,6 @@ struct ContentView: View {
                 .padding(.bottom, 16)
             }
             .onChange(of: timeline.currentTime) { _, _ in
-                guard timeline.isPlaying else { return }
                 applyEvaluatedPose()
             }
             .onChange(of: timeline.isPlaying) { _, playing in
@@ -118,6 +117,7 @@ struct ContentView: View {
     }
 
     private func saveCheckpoint() {
+        scene.syncPoseFromCamera(zoom: zoom)
         timeline.upsert(pose: scene.capturePose(), at: timeline.currentTime)
     }
 
