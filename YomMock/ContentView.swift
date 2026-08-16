@@ -20,6 +20,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
+            StudioBackdrop()
             RealityView { content in
                 content.camera = .virtual
                 content.environment = .default
@@ -444,12 +445,12 @@ private struct PhoneColorPicker: View {
                             .frame(width: 22, height: 22)
                             .overlay {
                                 Circle()
-                                    .strokeBorder(.black.opacity(0.3), lineWidth: 1)
+                                    .strokeBorder(.primary.opacity(0.3), lineWidth: 1)
                             }
                             .overlay {
                                 if selection == color {
                                     Circle()
-                                        .strokeBorder(.black.opacity(0.75), lineWidth: 2)
+                                        .strokeBorder(.primary.opacity(0.9), lineWidth: 2)
                                         .padding(-4)
                                 }
                             }
@@ -461,7 +462,7 @@ private struct PhoneColorPicker: View {
                 }
 
                 Rectangle()
-                    .fill(.black.opacity(0.2))
+                    .fill(.primary.opacity(0.2))
                     .frame(width: 1, height: 18)
 
                 ColorPicker("Custom color", selection: $customColor, supportsOpacity: false)
@@ -470,7 +471,7 @@ private struct PhoneColorPicker: View {
                     .overlay {
                         if selection == .custom {
                             Circle()
-                                .strokeBorder(.black.opacity(0.75), lineWidth: 2)
+                                .strokeBorder(.primary.opacity(0.9), lineWidth: 2)
                                 .padding(-4)
                                 .allowsHitTesting(false)
                         }
@@ -483,12 +484,33 @@ private struct PhoneColorPicker: View {
 
             Text(selection.name)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.black.opacity(0.7))
+                .foregroundStyle(.primary.opacity(0.75))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .background(.regularMaterial, in: Capsule())
-        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        .cardShadow()
+    }
+}
+
+/// Neutral studio backdrop behind the 3D scene. Reads like the bright
+/// cyclorama in light mode and a deep gray studio in dark mode.
+private struct StudioBackdrop: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [.studioTop, .studioBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            RadialGradient(
+                colors: [.studioGlow, .clear],
+                center: .center,
+                startRadius: 0,
+                endRadius: 560
+            )
+        }
+        .ignoresSafeArea()
     }
 }
 

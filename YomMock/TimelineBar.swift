@@ -25,13 +25,13 @@ struct TimelineBar: View {
             if timeline.checkpoints.count < 2 {
                 Text("Move the playhead, orbit and zoom yourself, then save a checkpoint.")
                     .font(.system(size: 11))
-                    .foregroundStyle(.black.opacity(0.45))
+                    .foregroundStyle(.primary.opacity(0.5))
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
+        .cardShadow()
     }
 
     private var playbackControls: some View {
@@ -62,18 +62,18 @@ struct TimelineBar: View {
                 .monospacedDigit()
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
             Text("/")
-                .foregroundStyle(.black.opacity(0.35))
+                .foregroundStyle(.primary.opacity(0.35))
             Text(timeline.formatted(timeline.duration))
                 .monospacedDigit()
-                .foregroundStyle(.black.opacity(0.55))
+                .foregroundStyle(.primary.opacity(0.55))
             Text("·")
-                .foregroundStyle(.black.opacity(0.3))
+                .foregroundStyle(.primary.opacity(0.35))
             Text("f\(timeline.currentFrame)")
                 .monospacedDigit()
-                .foregroundStyle(.black.opacity(0.45))
+                .foregroundStyle(.primary.opacity(0.5))
         }
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(.black.opacity(0.75))
+        .foregroundStyle(.primary.opacity(0.8))
     }
 
     private var checkpointButtons: some View {
@@ -108,7 +108,7 @@ struct TimelineBar: View {
         HStack(spacing: 4) {
             Text("Length")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.black.opacity(0.45))
+                .foregroundStyle(.primary.opacity(0.5))
             Button {
                 timeline.setDuration(timeline.duration - 1)
             } label: {
@@ -133,7 +133,7 @@ struct TimelineBar: View {
 
             Text("s")
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.black.opacity(0.45))
+                .foregroundStyle(.primary.opacity(0.5))
 
             Button {
                 timeline.setDuration(timeline.duration + 1)
@@ -158,6 +158,11 @@ struct TimelineBar: View {
 
 private struct TimelineTrack: View {
     @Bindable var timeline: CameraTimeline
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var knobShadowOpacity: Double {
+        colorScheme == .dark ? 0.5 : 0.18
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -166,23 +171,23 @@ private struct TimelineTrack: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.black.opacity(0.12))
+                    .fill(.primary.opacity(0.12))
                     .frame(height: 4)
 
                 Capsule()
-                    .fill(.black.opacity(0.32))
+                    .fill(.primary.opacity(0.32))
                     .frame(width: max(4, x(for: timeline.currentTime, width: width)), height: 4)
 
                 ForEach(secondMarks(width: width), id: \.self) { mark in
                     Capsule()
-                        .fill(.black.opacity(0.18))
+                        .fill(.primary.opacity(0.18))
                         .frame(width: 1, height: mark.isMajor ? 8 : 5)
                         .position(x: mark.x, y: height / 2 + 8)
                 }
 
                 ForEach(timeline.checkpoints) { checkpoint in
                     TimelineDiamond()
-                        .fill(Color.black.opacity(0.78))
+                        .fill(Color.primary.opacity(0.78))
                         .frame(width: 10, height: 10)
                         .position(x: x(for: checkpoint.time, width: width), y: height / 2)
                         .help(timeline.formatted(checkpoint.time))
@@ -192,12 +197,12 @@ private struct TimelineTrack: View {
                 }
 
                 Circle()
-                    .fill(.white)
+                    .fill(Color.timelineKnob)
                     .overlay {
-                        Circle().strokeBorder(.black.opacity(0.28), lineWidth: 1)
+                        Circle().strokeBorder(.primary.opacity(0.28), lineWidth: 1)
                     }
                     .frame(width: 14, height: 14)
-                    .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+                    .shadow(color: .black.opacity(knobShadowOpacity), radius: 2, y: 1)
                     .position(x: x(for: timeline.currentTime, width: width), y: height / 2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -258,8 +263,8 @@ private struct TimelineDiamond: Shape {
 private struct TimelineIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(.black.opacity(configuration.isPressed ? 0.45 : 0.75))
-            .background(.black.opacity(configuration.isPressed ? 0.08 : 0.05), in: Capsule())
+            .foregroundStyle(.primary.opacity(configuration.isPressed ? 0.45 : 0.8))
+            .background(.primary.opacity(configuration.isPressed ? 0.1 : 0.06), in: Capsule())
     }
 }
 
@@ -268,7 +273,7 @@ private struct TimelineTextButtonStyle: ButtonStyle {
         configuration.label
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .foregroundStyle(.black.opacity(configuration.isPressed ? 0.45 : 0.78))
-            .background(.black.opacity(configuration.isPressed ? 0.08 : 0.05), in: Capsule())
+            .foregroundStyle(.primary.opacity(configuration.isPressed ? 0.45 : 0.85))
+            .background(.primary.opacity(configuration.isPressed ? 0.1 : 0.06), in: Capsule())
     }
 }
