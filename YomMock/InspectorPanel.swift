@@ -5,13 +5,18 @@
 //  Right-hand panel — phone finish options.
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct InspectorPanel: View {
     @Binding var selectedColor: iPhoneColor
     @Binding var customColor: Color
     @Binding var background: StudioBackground
     @Binding var customBackground: Color
+    @Binding var displayImage: NSImage?
+    @Binding var displayFileName: String?
+    @Binding var displayStatus: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,6 +27,14 @@ struct InspectorPanel: View {
                     PhoneInspectorPanel(
                         selectedColor: $selectedColor,
                         customColor: $customColor
+                    )
+
+                    Divider()
+
+                    DisplayInspectorPanel(
+                        displayImage: $displayImage,
+                        displayFileName: $displayFileName,
+                        displayStatus: $displayStatus
                     )
 
                     Divider()
@@ -163,6 +176,237 @@ private struct BackdropInspectorPanel: View {
                 background = .custom
             }
         }
+    }
+}
+
+// MARK: - Display (Screenshot)
+
+private struct DisplayInspectorPanel: View {
+    @Binding var displayImage: NSImage?
+    @Binding var displayFileName: String?
+    @Binding var displayStatus: String?
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            inspectorHeader(title: "DISPLAY", subtitle: "Screenshot")
+
+            Text("Add an image to the phone's screen. It maps to the display and updates live. Drop a file here, on the preview, or choose one.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let image = displayImage {
+                VStack(alignment: .leading, spacing: 10) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.primary.opacity(0.04))
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .padding(8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                    }
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(displayFileName ?? "Screenshot")
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 8) {
+                        Button("Choose Different…", action: chooseImage)
+                            .buttonStyle(TimelineTextButtonStyle())
+                        Button("Remove", role: .destructive, action: removeImage)
+                            .buttonStyle(TimelineTextButtonStyle())
+                        Spacer()
+                    }
+
+                    Button(action: pasteFromClipboard) {
+                        Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .background {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.primary.opacity(0.03))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                }
+            } else {
+                VStack(spacing: 10) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(isDropTargeted ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(
+                                isDropTargeted ? Color.accentColor : Color.primary.opacity(0.12),
+                                style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                            )
+                        VStack(spacing: 6) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 18, weight: .regular))
+                                .foregroundStyle(.secondary)
+                            Text("Drop screenshot here")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text("PNG, JPEG, HEIC, TIFF")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 16)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+
+                    HStack(spacing: 8) {
+                        Button {
+                            chooseImage()
+                        } label: {
+                            Label("Choose Image…", systemImage: "photo.badge.plus")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .buttonStyle(TimelineTextButtonStyle())
+
+                        Button(action: pasteFromClipboard) {
+                            Label("Paste", systemImage: "doc.on.clipboard")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .buttonStyle(TimelineTextButtonStyle())
+                        .disabled(!canPasteImage)
+
+                        Spacer()
+                    }
+                }
+            }
+
+            if let displayStatus {
+                Text(displayStatus)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var canPasteImage: Bool {
+        NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
+            || NSPasteboard.general.canReadItem(withDataConformingToTypes: [UTType.image.identifier, UTType.fileURL.identifier, UTType.png.identifier])
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [
+            .png, .jpeg, .heic, .heif, .tiff, .bmp, .gif, .webP
+        ]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Choose an image for the phone display"
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK, let url = panel.url {
+            if let image = NSImage(contentsOf: url) {
+                displayFileName = url.lastPathComponent
+                displayImage = image
+                displayStatus = nil
+            } else {
+                displayStatus = "Could not load image at \(url.lastPathComponent)."
+            }
+        }
+    }
+
+    private func removeImage() {
+        displayImage = nil
+        displayFileName = nil
+        displayStatus = nil
+    }
+
+    private func pasteFromClipboard() {
+        let pb = NSPasteboard.general
+        if let images = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
+           let image = images.first
+        {
+            displayFileName = "Pasted image"
+            displayImage = image
+            displayStatus = nil
+            return
+        }
+        if let data = pb.data(forType: .tiff) ?? pb.data(forType: .png),
+           let image = NSImage(data: data)
+        {
+            displayFileName = "Pasted image"
+            displayImage = image
+            displayStatus = nil
+            return
+        }
+        displayStatus = "No image found on clipboard."
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let str = item as? String {
+                    url = URL(string: str)
+                } else if let u = item as? URL {
+                    url = u
+                }
+                guard let url, let image = NSImage(contentsOf: url) else {
+                    Task { @MainActor in displayStatus = "Could not load dropped file." }
+                    return
+                }
+                Task { @MainActor in
+                    displayFileName = url.lastPathComponent
+                    displayImage = image
+                    displayStatus = nil
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: NSImage.self) {
+            provider.loadObject(ofClass: NSImage.self) { object, _ in
+                guard let image = object as? NSImage else {
+                    Task { @MainActor in displayStatus = "Could not load dropped image." }
+                    return
+                }
+                Task { @MainActor in
+                    displayFileName = "Dropped image"
+                    displayImage = image
+                    displayStatus = nil
+                }
+            }
+            return true
+        }
+        return false
+    }
+}
+
+private struct TimelineTextButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .foregroundStyle(.primary.opacity(configuration.isPressed ? 0.45 : 0.85))
+            .background(.primary.opacity(configuration.isPressed ? 0.1 : 0.06), in: Capsule())
     }
 }
 

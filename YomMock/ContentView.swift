@@ -8,6 +8,7 @@
 import AppKit
 import RealityKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @State private var status: String?
@@ -21,6 +22,11 @@ struct ContentView: View {
     @State private var scene = PhoneScene()
     @State private var timeline = CameraTimeline()
     @State private var zoomAnimationTask: Task<Void, Never>?
+    @State private var displayImage: NSImage?
+    @State private var displayTexture: TextureResource?
+    @State private var displayFileName: String?
+    @State private var displayStatus: String?
+    @State private var displayLoadTask: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +38,10 @@ struct ContentView: View {
                     selectedColor: $selectedColor,
                     customColor: $customColor,
                     background: $background,
-                    customBackground: $customBackground
+                    customBackground: $customBackground,
+                    displayImage: $displayImage,
+                    displayFileName: $displayFileName,
+                    displayStatus: $displayStatus
                 )
                 .frame(width: 268)
             }
@@ -60,6 +69,9 @@ struct ContentView: View {
             guard !timeline.isPlaying else { return }
             scene.zoom = value
             scene.applyZoom()
+        }
+        .onChange(of: displayImage) { _, newImage in
+            setDisplayScreenshot(newImage)
         }
     }
 
@@ -130,8 +142,19 @@ struct ContentView: View {
                     .foregroundStyle(.red)
                     .padding()
             }
+
+            if let displayStatus {
+                Text(displayStatus)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding(6)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.bottom, 10)
+            }
         }
         .clipped()
+        .onDrop(of: [.fileURL, .image], isTargeted: nil, perform: handlePreviewDrop)
     }
 
     /// Smoothly eases the camera zoom toward a target with a strong ease-out
@@ -164,7 +187,6 @@ struct ContentView: View {
         )
     }
 
-
     private func applyEvaluatedPose() {
         let state = timeline.evaluatedState()
         scene.apply(orbit: state.orbit, zoom: state.zoom)
@@ -196,6 +218,86 @@ struct ContentView: View {
     private func refreshMaterials() {
         guard let phone = scene.phone else { return }
         applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
+    }
+
+    private func setDisplayScreenshot(_ image: NSImage?) {
+        displayLoadTask?.cancel()
+        displayStatus = nil
+        guard let image else {
+            displayTexture = nil
+            refreshMaterials()
+            return
+        }
+        displayLoadTask = Task { @MainActor in
+            do {
+                let cgImage = try Self.cgImage(from: image)
+                let texture = try await TextureResource(
+                    image: cgImage,
+                    withName: "DisplayScreenshot",
+                    options: TextureResource.CreateOptions(
+                        semantic: .color,
+                        mipmapsMode: .allocateAndGenerateAll
+                    )
+                )
+                guard !Task.isCancelled else { return }
+                displayTexture = texture
+                refreshMaterials()
+            } catch {
+                guard !Task.isCancelled else { return }
+                displayStatus = error.localizedDescription
+                displayTexture = nil
+                refreshMaterials()
+            }
+        }
+    }
+
+    private static func cgImage(from nsImage: NSImage) throws -> CGImage {
+        var rect = NSRect(origin: .zero, size: nsImage.size)
+        if let cg = nsImage.cgImage(forProposedRect: &rect, context: nil, hints: nil) {
+            return cg
+        }
+        guard let tiff = nsImage.tiffRepresentation,
+            let rep = NSBitmapImageRep(data: tiff),
+            let cg = rep.cgImage
+        else {
+            throw CocoaError(
+                .fileReadCorruptFile,
+                userInfo: [NSLocalizedDescriptionKey: "Could not convert image to CGImage."])
+        }
+        return cg
+    }
+
+    private func handlePreviewDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let string = item as? String {
+                    url = URL(string: string)
+                } else if let itemURL = item as? URL {
+                    url = itemURL
+                }
+                guard let url, let image = NSImage(contentsOf: url) else { return }
+                Task { @MainActor in
+                    displayFileName = url.lastPathComponent
+                    displayImage = image
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: NSImage.self) {
+            provider.loadObject(ofClass: NSImage.self) { object, _ in
+                guard let image = object as? NSImage else { return }
+                Task { @MainActor in
+                    displayFileName = "Pasted image"
+                    displayImage = image
+                }
+            }
+            return true
+        }
+        return false
     }
 
     private func bindCamera(from content: RealityViewCameraContent) {
@@ -258,6 +360,9 @@ struct ContentView: View {
         let key = name.lowercased()
 
         if key.contains("screen") && !key.contains("glass") && !key.contains("edge") {
+            if let displayTexture {
+                return screenMaterial(with: displayTexture)
+            }
             return pbr(
                 color: NSColor(calibratedWhite: 0.015, alpha: 1),
                 metallic: 0,
@@ -273,6 +378,31 @@ struct ContentView: View {
                 metallic: 0.08,
                 roughness: 0.22,
                 specular: 0.55
+            )
+        }
+        // The cover glass sits directly in front of the LCD (Mesh_013_Glass_Screen).
+        // When a screenshot is active it must be transparent, otherwise the opaque
+        // dark glass hides the textured 043_Screen plane behind it.
+        if key.contains("glass_screen") {
+            if displayTexture != nil {
+                var material = PhysicallyBasedMaterial()
+                material.baseColor = .init(tint: NSColor(white: 1, alpha: 0))
+                material.metallic = .init(floatLiteral: 0)
+                material.roughness = .init(floatLiteral: 0.015)
+                material.specular = .init(floatLiteral: 1)
+                material.clearcoat = .init(floatLiteral: 1)
+                material.clearcoatRoughness = .init(floatLiteral: 0.015)
+                material.blending = .transparent(opacity: 0.0)
+                return material
+            }
+            // No screenshot — keep the original dark glass so the off-screen looks correct.
+            return pbr(
+                color: NSColor(calibratedRed: 0.03, green: 0.032, blue: 0.036, alpha: 1),
+                metallic: 0,
+                roughness: 0.028,
+                specular: 1,
+                clearcoat: 1,
+                clearcoatRoughness: 0.02
             )
         }
         if key.contains("glass_back")
@@ -391,6 +521,24 @@ struct ContentView: View {
             material.emissiveColor = .init(color: emissive)
             material.emissiveIntensity = emissiveIntensity
         }
+        return material
+    }
+
+    private func screenMaterial(with texture: TextureResource) -> PhysicallyBasedMaterial {
+        var material = PhysicallyBasedMaterial()
+        let tex = MaterialParameters.Texture(texture)
+        material.baseColor = .init(texture: tex)
+        // Keep a hint of physical response so the screen still reads as glass
+        // under the studio lights, but let the image dominate.
+        material.metallic = .init(floatLiteral: 0)
+        material.roughness = .init(floatLiteral: 0.02)
+        material.specular = .init(floatLiteral: 0.08)
+        material.clearcoat = .init(floatLiteral: 0.95)
+        material.clearcoatRoughness = .init(floatLiteral: 0.08)
+        // Brighter emissive so the screenshot reads like a lit display
+        // even when angled away from the key light.
+        material.emissiveColor = .init(texture: tex)
+        material.emissiveIntensity = 1.4
         return material
     }
 }
