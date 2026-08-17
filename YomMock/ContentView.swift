@@ -27,7 +27,6 @@ struct ContentView: View {
     @State private var displayFileName: String?
     @State private var displayStatus: String?
     @State private var displayLoadTask: Task<Void, Never>?
-    @State private var isShiftHeld = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -137,7 +136,6 @@ struct ContentView: View {
                         animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
                     }
                     CameraPanCatcher(
-                        onShiftChanged: { held in isShiftHeld = held },
                         onPan: { delta in
                             guard !timeline.isPlaying else { return }
                             userMovedCamera = true
@@ -614,7 +612,6 @@ final class PhoneScene {
     var zoom: Float = 1
     var baseScale: Float = 1
     var modelCenter = SIMD3<Float>.zero
-    var target = SIMD3<Float>.zero
     var panOffset = SIMD3<Float>.zero
     var hasUserInteracted = false
 
@@ -628,9 +625,8 @@ final class PhoneScene {
     func syncPoseFromCamera(zoom: Float) {
         guard let camera else { return }
         let position = camera.position(relativeTo: nil)
-        let orbitPos = position - target
-        guard simd_length(orbitPos) > 1e-4 else { return }
-        orbitPose = OrbitPose(position: orbitPos)
+        guard simd_length(position) > 1e-4 else { return }
+        orbitPose = OrbitPose(position: position)
         self.zoom = zoom
     }
 
@@ -679,7 +675,6 @@ final class PhoneScene {
     }
 
     func resetPan() {
-        target = .zero
         panOffset = .zero
         applyCamera(from: orbitPose.position)
         applyZoom()
@@ -707,13 +702,11 @@ final class PhoneScene {
             camera.components.set(perspective)
         }
         // Keep a stable up when near the pole to avoid 180° roll.
-        // At pitch ~±80° the forward is near world-up, so bias up toward -Z.
         let pitch = orbitPose.pitch
         if abs(pitch) > 1.30 {
-            // Build look with explicit up to avoid auto-up singularity.
-            let eye = target + position
-            let forward = normalize(target - eye)
-            let worldUp: SIMD3<Float> = abs(pitch) < .pi/2 - 0.05 ? [0,1,0] : [0,0,-1]
+            let eye = position
+            let forward = normalize(SIMD3<Float>.zero - eye)
+            let worldUp: SIMD3<Float> = [0, 1, 0]
             let right = normalize(cross(forward, worldUp))
             let up = cross(right, forward)
             var m = matrix_identity_float4x4
@@ -723,7 +716,7 @@ final class PhoneScene {
             m.columns.3 = SIMD4<Float>(eye.x, eye.y, eye.z, 1)
             camera.setTransformMatrix(m, relativeTo: nil)
         } else {
-            camera.look(at: target, from: target + position, relativeTo: nil)
+            camera.look(at: .zero, from: position, relativeTo: nil)
         }
     }
 
@@ -789,30 +782,25 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
     }
 }
 
-/// Shift + drag pans (track) and drag without shift orbits.
-/// Now owns all orbit + pan so PhoneScene is single source of truth
-/// (no more RealityKit .orbit fighting manual a/d).
+/// Shift + drag pans and drag without shift orbits.
+/// Owns all orbit + pan so PhoneScene is single source of truth.
 private struct CameraPanCatcher: NSViewRepresentable {
-    var onShiftChanged: (Bool) -> Void
     var onPan: (SIMD2<Float>) -> Void
     var onOrbit: (SIMD2<Float>) -> Void
 
     func makeNSView(context: Context) -> PanMonitorView {
         let view = PanMonitorView()
-        view.onShiftChanged = onShiftChanged
         view.onPan = onPan
         view.onOrbit = onOrbit
         return view
     }
 
     func updateNSView(_ view: PanMonitorView, context: Context) {
-        view.onShiftChanged = onShiftChanged
         view.onPan = onPan
         view.onOrbit = onOrbit
     }
 
     final class PanMonitorView: NSView {
-        var onShiftChanged: ((Bool) -> Void)?
         var onPan: ((SIMD2<Float>) -> Void)?
         var onOrbit: ((SIMD2<Float>) -> Void)?
         private var flagsMonitor: Any?
@@ -832,13 +820,10 @@ private struct CameraPanCatcher: NSViewRepresentable {
         private func installMonitors() {
             removeMonitors()
             guard window != nil else { return }
+            // Keep shift state in sync even without drag, for future use.
             flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
                 guard let self else { return event }
-                let held = event.modifierFlags.contains(.shift)
-                if held != self.isShiftHeld {
-                    self.isShiftHeld = held
-                    self.onShiftChanged?(held)
-                }
+                self.isShiftHeld = event.modifierFlags.contains(.shift)
                 return event
             }
             dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { [weak self] event in
@@ -853,17 +838,13 @@ private struct CameraPanCatcher: NSViewRepresentable {
                     return event
                 case .leftMouseDragged:
                     let shift = event.modifierFlags.contains(.shift)
-                    if shift != isShiftHeld {
-                        isShiftHeld = shift
-                        onShiftChanged?(shift)
-                    }
+                    isShiftHeld = shift
                     let dx = Float(event.deltaX)
                     let dy = Float(event.deltaY)
                     if (isDraggingInside || bounds.contains(location)) && shift {
                         onPan?(SIMD2<Float>(dx, dy))
                         return nil
                     } else if isDraggingInside || bounds.contains(location) {
-                        // Normal drag → orbit
                         onOrbit?(SIMD2<Float>(dx, dy))
                         return nil
                     }
