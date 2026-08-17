@@ -23,7 +23,7 @@ struct InspectorPanel: View {
             Divider().opacity(0)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     PhoneInspectorPanel(
                         selectedColor: $selectedColor,
                         customColor: $customColor
@@ -44,7 +44,7 @@ struct InspectorPanel: View {
                         customBackground: $customBackground
                     )
                 }
-                .padding(16)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -63,21 +63,12 @@ private struct PhoneInspectorPanel: View {
     @Binding var customColor: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            inspectorHeader(title: "PHONE", subtitle: "Finish & color")
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorHeader(title: "PHONE", subtitle: "Finish")
 
-            Text("Choose the phone finish. The frame and glass update live in the preview.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            sectionLabel("Presets")
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 72), spacing: 8)],
-                spacing: 8
-            ) {
+            HStack(spacing: 8) {
                 ForEach(iPhoneColor.presets) { color in
-                    PhoneColorCard(
+                    PhoneColorCircle(
                         color: color,
                         isSelected: selectedColor == color
                     ) {
@@ -86,36 +77,33 @@ private struct PhoneInspectorPanel: View {
                 }
             }
 
-            sectionLabel("Custom")
-            HStack(spacing: 10) {
-                ColorPicker("Custom color", selection: $customColor, supportsOpacity: false)
+            HStack(spacing: 8) {
+                ColorPicker("Custom", selection: $customColor, supportsOpacity: false)
                     .labelsHidden()
-                    .frame(width: 28, height: 28)
+                    .frame(width: 22, height: 22)
                     .onChange(of: customColor) { _, _ in
                         selectedColor = .custom
                     }
-                Text("Pick any color")
-                    .font(.callout)
+                Circle()
+                    .fill(Color(nsColor: NSColor(customColor)))
+                    .frame(width: 10, height: 10)
+                    .opacity(selectedColor == .custom ? 1 : 0)
+                Text("Custom")
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(selectedColor == .custom
-                          ? Color.accentColor.opacity(0.12)
-                          : Color.primary.opacity(0.04))
+                Capsule()
+                    .fill(selectedColor == .custom ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(selectedColor == .custom
-                                  ? Color.accentColor.opacity(0.8)
-                                  : Color.primary.opacity(0.06),
-                                  lineWidth: 1)
+                Capsule()
+                    .strokeBorder(selectedColor == .custom ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06), lineWidth: 1)
             }
-            .onTapGesture {
-                selectedColor = .custom
-            }
+            .onTapGesture { selectedColor = .custom }
         }
     }
 }
@@ -125,18 +113,12 @@ private struct BackdropInspectorPanel: View {
     @Binding var customBackground: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            inspectorHeader(title: "BACKDROP", subtitle: "Preview background")
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorHeader(title: "BACKDROP", subtitle: "Background")
 
-            Text("The color behind the phone in the preview. White is the default and stays white regardless of the device theme.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            sectionLabel("Presets")
             HStack(spacing: 8) {
                 ForEach(StudioBackground.presets) { color in
-                    BackdropSwatch(
+                    BackdropCircle(
                         color: color,
                         isSelected: background == color
                     ) {
@@ -145,36 +127,29 @@ private struct BackdropInspectorPanel: View {
                 }
             }
 
-            sectionLabel("Custom")
-            HStack(spacing: 10) {
-                ColorPicker("Custom backdrop", selection: $customBackground, supportsOpacity: false)
+            HStack(spacing: 8) {
+                ColorPicker("Custom", selection: $customBackground, supportsOpacity: false)
                     .labelsHidden()
-                    .frame(width: 28, height: 28)
+                    .frame(width: 22, height: 22)
                     .onChange(of: customBackground) { _, _ in
                         background = .custom
                     }
-                Text("Pick a color")
-                    .font(.callout)
+                Text("Custom")
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
-            .padding(10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
             .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(background == .custom
-                          ? Color.accentColor.opacity(0.12)
-                          : Color.primary.opacity(0.04))
+                Capsule()
+                    .fill(background == .custom ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(background == .custom
-                                  ? Color.accentColor.opacity(0.8)
-                                  : Color.primary.opacity(0.06),
-                                  lineWidth: 1)
+                Capsule()
+                    .strokeBorder(background == .custom ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06), lineWidth: 1)
             }
-            .onTapGesture {
-                background = .custom
-            }
+            .onTapGesture { background = .custom }
         }
     }
 }
@@ -188,89 +163,74 @@ private struct DisplayInspectorPanel: View {
     @State private var isDropTargeted = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             inspectorHeader(title: "DISPLAY", subtitle: "Screenshot")
 
-            Text("Add an image to the phone's screen. It maps to the display and updates live. Drop a file here, on the preview, or choose one.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
             if let image = displayImage {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(Color.primary.opacity(0.04))
                         Image(nsImage: image)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .frame(maxHeight: 180)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .padding(8)
+                            .frame(maxHeight: 120)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .padding(6)
                     }
                     .frame(maxWidth: .infinity)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                     }
 
                     HStack(spacing: 6) {
                         Image(systemName: "photo")
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                         Text(displayFileName ?? "Screenshot")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer()
                     }
 
-                    HStack(spacing: 8) {
-                        Button("Choose Different…", action: chooseImage)
+                    HStack(spacing: 6) {
+                        Button("Choose…", action: chooseImage)
                             .buttonStyle(TimelineTextButtonStyle())
                         Button("Remove", role: .destructive, action: removeImage)
                             .buttonStyle(TimelineTextButtonStyle())
                         Spacer()
                     }
-
-                    Button(action: pasteFromClipboard) {
-                        Label("Paste from Clipboard", systemImage: "doc.on.clipboard")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
                 }
-                .padding(10)
+                .padding(8)
                 .background {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(Color.primary.opacity(0.03))
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
                 }
             } else {
-                VStack(spacing: 10) {
+                VStack(spacing: 8) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .fill(isDropTargeted ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(
                                 isDropTargeted ? Color.accentColor : Color.primary.opacity(0.12),
                                 style: StrokeStyle(lineWidth: 1, dash: [5, 4])
                             )
-                        VStack(spacing: 6) {
+                        VStack(spacing: 4) {
                             Image(systemName: "photo.on.rectangle.angled")
-                                .font(.system(size: 18, weight: .regular))
+                                .font(.system(size: 16, weight: .regular))
                                 .foregroundStyle(.secondary)
-                            Text("Drop screenshot here")
+                            Text("Drop screenshot")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            Text("PNG, JPEG, HEIC, TIFF")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
                         }
-                        .padding(.vertical, 16)
+                        .padding(.vertical, 12)
                     }
                     .frame(maxWidth: .infinity)
                     .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
@@ -410,102 +370,55 @@ private struct TimelineTextButtonStyle: ButtonStyle {
     }
 }
 
-private struct BackdropSwatch: View {
+private struct BackdropCircle: View {
     let color: StudioBackground
     let isSelected: Bool
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(color.swatch)
-                    .frame(height: 40)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(.primary.opacity(0.2), lineWidth: 1)
+            Circle()
+                .fill(color.swatch)
+                .frame(width: 26, height: 26)
+                .overlay { Circle().strokeBorder(.primary.opacity(0.22), lineWidth: 1) }
+                .overlay {
+                    if isSelected {
+                        Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(color == .black ? Color.white.opacity(0.9) : Color.black.opacity(0.6))
                     }
-                    .overlay {
-                        if isSelected {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(checkmarkColor)
-                        }
-                    }
-
-                Text(color.name)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-            }
-            .padding(6)
-            .frame(maxWidth: .infinity)
-            .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.08),
-                                  lineWidth: isSelected ? 1.5 : 1)
-            }
+                }
         }
         .buttonStyle(.plain)
         .help(color.name)
     }
-
-    private var checkmarkColor: Color {
-        switch color {
-        case .white: .black.opacity(0.6)
-        case .black: .white.opacity(0.9)
-        default: .black.opacity(0.6)
-        }
-    }
 }
 
-private struct PhoneColorCard: View {
+private struct PhoneColorCircle: View {
     let color: iPhoneColor
     let isSelected: Bool
     let onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(nsColor: .controlBackgroundColor),
-                                    Color.primary.opacity(0.06)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                    Circle()
-                        .fill(color.swatch)
-                        .frame(width: 30, height: 30)
-                        .overlay {
-                            Circle()
-                                .strokeBorder(.primary.opacity(0.25), lineWidth: 1)
-                        }
+            Circle()
+                .fill(color.swatch)
+                .frame(width: 26, height: 26)
+                .overlay { Circle().strokeBorder(.primary.opacity(0.22), lineWidth: 1) }
+                .overlay {
+                    if isSelected {
+                        Circle().strokeBorder(Color.accentColor, lineWidth: 2)
+                    }
                 }
-                .frame(height: 52)
-
-                Text(color.name)
-                    .font(.system(size: 10, weight: .medium))
-                    .lineLimit(1)
-            }
-            .padding(6)
-            .background {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.05))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.08),
-                                  lineWidth: isSelected ? 1.5 : 1)
-            }
+                .overlay {
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.35), radius: 1)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .help(color.name)
@@ -515,13 +428,13 @@ private struct PhoneColorCard: View {
 // MARK: - Shared helpers
 
 private func inspectorHeader(title: String, subtitle: String) -> some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 2) {
         Text(title)
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(0.75)
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.7)
             .foregroundStyle(.secondary)
         Text(subtitle)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: 12, weight: .semibold))
     }
 }
 

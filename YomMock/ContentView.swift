@@ -43,7 +43,7 @@ struct ContentView: View {
                     displayFileName: $displayFileName,
                     displayStatus: $displayStatus
                 )
-                .frame(width: 268)
+                .frame(width: 210)
             }
             .frame(minHeight: 330)
 
