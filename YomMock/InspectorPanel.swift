@@ -2,32 +2,29 @@
 //  InspectorPanel.swift
 //  YomMock
 //
-//  Right-hand options panel, matching viewio's ClipInspector layout:
-//  a tab bar on top and a scrollable list of controls below.
+//  Right-hand options panel. Tabs: "Phone" for the phone finish, and "Shot"
+//  for the selected camera checkpoint (orbit + zoom).
 //
 
 import SwiftUI
 
 enum InspectorTab: String, CaseIterable, Identifiable {
     case phone
-    case zoom
-    case camera
+    case shot
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .phone: "Phone"
-        case .zoom: "Zoom"
-        case .camera: "Camera"
+        case .shot: "Shot"
         }
     }
 
     var systemImage: String {
         switch self {
         case .phone: "iphone"
-        case .zoom: "plus.magnifyingglass"
-        case .camera: "camera"
+        case .shot: "camera"
         }
     }
 }
@@ -40,8 +37,7 @@ struct InspectorPanel: View {
 
     var cameraAvailable: Bool
     var timeline: CameraTimeline
-    var onUpdateZoomFromScene: () -> Void
-    var onUpdateOrbitFromScene: () -> Void
+    var onCapture: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -60,18 +56,12 @@ struct InspectorPanel: View {
                             selectedColor: $selectedColor,
                             customColor: $customColor
                         )
-                    case .zoom:
-                        ZoomInspectorPanel(
+                    case .shot:
+                        ShotInspectorPanel(
                             zoom: $zoom,
                             timeline: timeline,
                             cameraAvailable: cameraAvailable,
-                            onUpdateFromScene: onUpdateZoomFromScene
-                        )
-                    case .camera:
-                        CameraInspectorPanel(
-                            timeline: timeline,
-                            cameraAvailable: cameraAvailable,
-                            onUpdateFromScene: onUpdateOrbitFromScene
+                            onCapture: onCapture
                         )
                     }
                 }
@@ -253,40 +243,65 @@ private struct PhoneColorCard: View {
     }
 }
 
-// MARK: - Zoom
+// MARK: - Shot (selected checkpoint)
 
-private struct ZoomInspectorPanel: View {
+private struct ShotInspectorPanel: View {
     @Binding var zoom: Float
     var timeline: CameraTimeline
     var cameraAvailable: Bool
-    var onUpdateFromScene: () -> Void
+    var onCapture: () -> Void
 
-    private var selectedRange: ZoomRange? {
-        timeline.zoomRanges.first { $0.id == timeline.selectedZoomRangeID }
+    private var selected: CameraCheckpoint? {
+        timeline.selectedCheckpoint
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            inspectorHeader(title: "ZOOM", subtitle: "Scale & range")
+            inspectorHeader(title: "SHOT", subtitle: "Selected checkpoint")
 
-            if let range = selectedRange {
-                Text("Selected zoom range")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text(String(format: "%.2gx", range.zoom))
-                        .font(.system(size: 26, weight: .medium, design: .rounded))
+            if let checkpoint = selected {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Checkpoint \(timeline.formatted(checkpoint.time))")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        Text("Orbit and zoom held at this moment")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text("amount")
+                }
+
+                HStack(spacing: 12) {
+                    LabeledContent("Yaw") {
+                        Text(angleLabel(checkpoint.pose.yaw))
+                            .font(.system(size: 12, design: .monospaced))
+                    }
+                    .font(.caption)
+                    LabeledContent("Pitch") {
+                        Text(angleLabel(checkpoint.pose.pitch))
+                            .font(.system(size: 12, design: .monospaced))
+                    }
+                    .font(.caption)
+                    LabeledContent("Dist.") {
+                        Text(String(format: "%.2f", checkpoint.pose.radius))
+                            .font(.system(size: 12, design: .monospaced))
+                    }
+                    .font(.caption)
+                }
+
+                HStack {
+                    Text("Zoom")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(String(format: "%.2gx", checkpoint.zoom))
+                        .font(.system(size: 12, design: .monospaced))
                 }
 
                 Slider(
                     value: Binding(
-                        get: { Double(range.zoom) },
-                        set: { timeline.updateSelectedZoom(Float($0)) }
+                        get: { Double(checkpoint.zoom) },
+                        set: { timeline.updateSelectedCheckpoint(zoom: Float($0)) }
                     ),
                     in: 1...Double(PhoneScene.maxZoom),
                     step: 0.05
@@ -294,112 +309,44 @@ private struct ZoomInspectorPanel: View {
                 .tint(.accentColor)
                 .disabled(!cameraAvailable || timeline.isPlaying)
 
-                Button(action: onUpdateFromScene) {
-                    Label("Capture current zoom", systemImage: "arrow.triangle.2.circlepath")
-                        .frame(maxWidth: .infinity)
+                Button(action: onCapture) {
+                    Label(
+                        "Capture current camera",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
                 .disabled(!cameraAvailable || timeline.isPlaying)
-                .help("Store the current scene zoom into the selected range")
+                .help("Store the current scene orbit and zoom into this checkpoint")
+
+                Divider()
+
+                Text("Orbit and zoom the scene, place the playhead on a checkpoint, then Save Checkpoint captures a new keyframe.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
-                Text("Select a zoom range on the timeline to adjust its amount, or add one with the + button.")
+                Text("No checkpoint selected. Click a diamond on the timeline to edit that checkpoint.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
 
-            Divider()
+                Divider()
 
-            HStack {
-                Text("Live zoom")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(String(format: "%.2gx", zoom))
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-
-            Slider(
-                value: Binding(
-                    get: { Double(zoom) },
-                    set: { zoom = Float($0) }
-                ),
-                in: Double(PhoneScene.minZoom)...Double(PhoneScene.maxZoom),
-                step: 0.05
-            )
-            .tint(.accentColor)
-            .disabled(timeline.isPlaying)
-        }
-    }
-}
-
-// MARK: - Camera
-
-private struct CameraInspectorPanel: View {
-    var timeline: CameraTimeline
-    var cameraAvailable: Bool
-    var onUpdateFromScene: () -> Void
-
-    private var selectedRange: OrbitRange? {
-        timeline.orbitRanges.first { $0.id == timeline.selectedOrbitRangeID }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            inspectorHeader(title: "CAMERA", subtitle: "Orbit & framing")
-
-            if let range = selectedRange {
-                Text("Selected camera range")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 8) {
-                    LabeledContent("Yaw") {
-                        Text(angleLabel(range.pose.yaw))
-                            .font(.system(size: 12, design: .monospaced))
-                    }
+                Text("The camera animates between checkpoints, easing orbit and zoom together.")
                     .font(.caption)
-                    LabeledContent("Pitch") {
-                        Text(angleLabel(range.pose.pitch))
-                            .font(.system(size: 12, design: .monospaced))
-                    }
-                    .font(.caption)
-                    LabeledContent("Radius") {
-                        Text(String(format: "%.2f", range.pose.radius))
-                            .font(.system(size: 12, design: .monospaced))
-                    }
-                    .font(.caption)
-                }
-
-                Button(action: onUpdateFromScene) {
-                    Label("Capture current camera", systemImage: "arrow.triangle.2.circlepath")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-                .disabled(!cameraAvailable || timeline.isPlaying)
-                .help("Store the current orbit into the selected range")
-            } else {
-                Text("Select a camera range on the timeline to inspect it, or add one with the + button.")
-                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Divider()
-
-            Text("Orbit the scene in the preview to frame the shot. Camera ranges animate the orbit between keyframes.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func angleLabel(_ radians: Float) -> String {
         let degrees = Int((Double(radians) * 180 / .pi).rounded())
-        return "\(degrees)°"
+        let normalized = ((degrees % 360) + 360) % 360
+        return "\(normalized)°"
     }
 }
 

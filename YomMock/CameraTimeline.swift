@@ -39,40 +39,20 @@ nonisolated struct OrbitPose: Equatable, Sendable {
     }
 }
 
-nonisolated protocol TimelineRange: Identifiable, Equatable, Sendable where ID == UUID {
-    var start: TimeInterval { get set }
-    var end: TimeInterval { get set }
-}
-
-extension TimelineRange {
-    var length: TimeInterval { end - start }
-}
-
-nonisolated struct ZoomRange: TimelineRange {
+/// A single moment in the timeline capturing both the camera orbit and the
+/// zoom. The timeline animates from one checkpoint to the next, interpolating
+/// orbit and zoom together.
+nonisolated struct CameraCheckpoint: Identifiable, Equatable, Sendable {
     let id: UUID
-    var start: TimeInterval
-    var end: TimeInterval
+    var time: TimeInterval
+    var pose: OrbitPose
     var zoom: Float
 
-    init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, zoom: Float) {
+    init(id: UUID = UUID(), time: TimeInterval, pose: OrbitPose, zoom: Float) {
         self.id = id
-        self.start = start
-        self.end = end
-        self.zoom = zoom
-    }
-}
-
-nonisolated struct OrbitRange: TimelineRange {
-    let id: UUID
-    var start: TimeInterval
-    var end: TimeInterval
-    var pose: OrbitPose
-
-    init(id: UUID = UUID(), start: TimeInterval, end: TimeInterval, pose: OrbitPose) {
-        self.id = id
-        self.start = start
-        self.end = end
+        self.time = time
         self.pose = pose
+        self.zoom = zoom
     }
 }
 
@@ -82,27 +62,21 @@ final class CameraTimeline {
     nonisolated static let fps: Double = 30
     nonisolated static let maxDuration: TimeInterval = 120
     nonisolated static let defaultDuration: TimeInterval = 12
-    nonisolated static let minimumRangeLength: TimeInterval = 0.25
-    nonisolated static let defaultRangeLength: TimeInterval = 2.5
-    nonisolated static let maximumTransition: TimeInterval = 0.6
+    nonisolated static let snapTolerance: TimeInterval = 1 / fps
 
     var duration: TimeInterval
     var currentTime: TimeInterval = 0
     var isPlaying = false
-    private(set) var zoomRanges: [ZoomRange] = []
-    private(set) var orbitRanges: [OrbitRange] = []
-    private(set) var basePose: OrbitPose = .default
-    var selectedZoomRangeID: UUID?
-    var selectedOrbitRangeID: UUID?
+    private(set) var checkpoints: [CameraCheckpoint]
+    var selectedCheckpointID: UUID?
 
     init(duration: TimeInterval = CameraTimeline.defaultDuration) {
         self.duration = duration
+        self.checkpoints = [CameraCheckpoint(time: 0, pose: .default, zoom: 1)]
     }
 
     var minDuration: TimeInterval {
-        let lastZoomEnd = zoomRanges.map(\.end).max() ?? 0
-        let lastOrbitEnd = orbitRanges.map(\.end).max() ?? 0
-        return max(1, lastZoomEnd, lastOrbitEnd)
+        max(1, checkpoints.map(\.time).max() ?? 0)
     }
 
     var currentFrame: Int {
@@ -111,6 +85,15 @@ final class CameraTimeline {
 
     var totalFrames: Int {
         max(1, Int((duration * Self.fps).rounded(.down)))
+    }
+
+    /// The checkpoint exactly under the playhead (within a frame), if any.
+    var checkpointAtPlayhead: CameraCheckpoint? {
+        checkpoints.first { abs($0.time - currentTime) <= Self.snapTolerance }
+    }
+
+    var selectedCheckpoint: CameraCheckpoint? {
+        checkpoints.first { $0.id == selectedCheckpointID }
     }
 
     func formatted(_ time: TimeInterval) -> String {
@@ -139,10 +122,7 @@ final class CameraTimeline {
 
     func advance(by dt: TimeInterval) {
         guard isPlaying else { return }
-        let next = min(max(currentTime + dt, 0), duration)
-        if next != currentTime {
-            currentTime = next
-        }
+        currentTime = min(max(currentTime + dt, 0), duration)
         if currentTime >= duration {
             isPlaying = false
         }
@@ -154,159 +134,87 @@ final class CameraTimeline {
         currentTime = min(currentTime, duration)
     }
 
+    /// Save the given orbit + zoom at the playhead, updating an existing
+    /// checkpoint at that time or inserting a new one.
     @discardableResult
-    func addZoomRange(at time: TimeInterval, zoom: Float) -> ZoomRange? {
-        guard let span = insertionSpan(at: time, in: zoomRanges) else { return nil }
-        let range = ZoomRange(start: span.lowerBound, end: span.upperBound, zoom: zoom)
-        zoomRanges.append(range)
-        zoomRanges.sort { $0.start < $1.start }
-        selectedZoomRangeID = range.id
-        return range
-    }
-
-    @discardableResult
-    func addOrbitRange(at time: TimeInterval, pose: OrbitPose) -> OrbitRange? {
-        guard let span = insertionSpan(at: time, in: orbitRanges) else { return nil }
-        let range = OrbitRange(start: span.lowerBound, end: span.upperBound, pose: pose)
-        orbitRanges.append(range)
-        orbitRanges.sort { $0.start < $1.start }
-        selectedOrbitRangeID = range.id
-        return range
-    }
-
-    func updateZoomRange(_ updated: ZoomRange) {
-        guard zoomRanges.contains(where: { $0.id == updated.id }) else { return }
-        zoomRanges = zoomRanges.map { $0.id == updated.id ? clamped(updated, in: zoomRanges) : $0 }
-        zoomRanges.sort { $0.start < $1.start }
-    }
-
-    func updateOrbitRange(_ updated: OrbitRange) {
-        guard orbitRanges.contains(where: { $0.id == updated.id }) else { return }
-        orbitRanges = orbitRanges.map {
-            $0.id == updated.id ? clamped(updated, in: orbitRanges) : $0
+    func saveCheckpoint(at time: TimeInterval, pose: OrbitPose, zoom: Float) -> CameraCheckpoint {
+        let t = min(max(time, 0), duration)
+        if let index = checkpoints.firstIndex(where: { abs($0.time - t) <= Self.snapTolerance }) {
+            checkpoints[index].time = t
+            checkpoints[index].pose = pose
+            checkpoints[index].zoom = zoom
+            selectedCheckpointID = checkpoints[index].id
+            return checkpoints[index]
         }
-        orbitRanges.sort { $0.start < $1.start }
+        let checkpoint = CameraCheckpoint(time: t, pose: pose, zoom: zoom)
+        checkpoints.append(checkpoint)
+        checkpoints.sort { $0.time < $1.time }
+        selectedCheckpointID = checkpoint.id
+        return checkpoint
     }
 
-    func removeZoomRange(id: UUID) {
-        zoomRanges.removeAll { $0.id == id }
-        if selectedZoomRangeID == id {
-            selectedZoomRangeID = nil
-        }
-    }
-
-    func removeOrbitRange(id: UUID) {
-        orbitRanges.removeAll { $0.id == id }
-        if selectedOrbitRangeID == id {
-            selectedOrbitRangeID = nil
-        }
-    }
-
-    func updateSelectedZoom(_ zoom: Float) {
+    func updateSelectedCheckpoint(pose: OrbitPose? = nil, zoom: Float? = nil) {
         guard
-            let id = selectedZoomRangeID,
-            let index = zoomRanges.firstIndex(where: { $0.id == id })
+            let id = selectedCheckpointID,
+            let index = checkpoints.firstIndex(where: { $0.id == id })
         else { return }
-        zoomRanges[index].zoom = zoom
+        if let pose { checkpoints[index].pose = pose }
+        if let zoom { checkpoints[index].zoom = zoom }
     }
 
-    func updateSelectedOrbit(_ pose: OrbitPose) {
-        guard
-            let id = selectedOrbitRangeID,
-            let index = orbitRanges.firstIndex(where: { $0.id == id })
-        else { return }
-        orbitRanges[index].pose = pose
+    func deleteCheckpoint(id: UUID) {
+        guard checkpoints.count > 1 else { return }
+        checkpoints.removeAll { $0.id == id }
+        if selectedCheckpointID == id {
+            selectedCheckpointID = nil
+        }
     }
 
+    func select(_ checkpoint: CameraCheckpoint) {
+        selectedCheckpointID = checkpoint.id
+        seek(to: checkpoint.time)
+    }
+
+    /// Keep a studio-default pose in the first checkpoint until the user
+    /// takes over the camera by orbiting.
     func seedBasePoseIfDefault(_ pose: OrbitPose) {
-        guard orbitRanges.isEmpty, pose != basePose else { return }
-        basePose = pose
+        guard
+            checkpoints.count == 1,
+            checkpoints[0].time == 0,
+            checkpoints[0].pose == .default,
+            pose != .default
+        else { return }
+        checkpoints[0].pose = pose
     }
 
-    func evaluatedZoom(at time: TimeInterval? = nil) -> Float {
-        let t = time ?? currentTime
-        guard let range = zoomRanges.first(where: { t >= $0.start && t <= $0.end }) else {
-            return 1
-        }
-        let progress = rangeEnvelope(at: t, start: range.start, end: range.end)
-        if progress <= 0 { return 1 }
-        if progress >= 1 { return range.zoom }
-        return 1 + (range.zoom - 1) * progress
-    }
-
-    func evaluatedOrbit(at time: TimeInterval? = nil) -> OrbitPose {
-        let t = time ?? currentTime
-        guard let range = orbitRanges.first(where: { t >= $0.start && t <= $0.end }) else {
-            return basePose
-        }
-        let progress = rangeEnvelope(at: t, start: range.start, end: range.end)
-        if progress <= 0 { return basePose }
-        if progress >= 1 { return range.pose }
-        return basePose.interpolated(to: range.pose, t: progress)
-    }
-
+    /// Interpolated orbit + zoom at a time, eased between adjacent checkpoints.
     func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float) {
         let t = time ?? currentTime
-        return (evaluatedOrbit(at: t), evaluatedZoom(at: t))
-    }
-
-    /// 0 at the base value, 1 fully inside the range, with eased ramps at both
-    /// ends. Ranges pinned to a timeline edge hold full value from that edge.
-    private func rangeEnvelope(at t: TimeInterval, start: TimeInterval, end: TimeInterval) -> Float
-    {
-        let length = max(0.001, end - start)
-        let transition = min(Self.maximumTransition, max(0.12, length / 2.4))
-        let entry = start <= 0.001 ? TimeInterval.zero : transition
-        let exit = end >= duration - 0.001 ? TimeInterval.zero : transition
-        let relative = t - start
-        if entry > 0, relative < entry {
-            return Self.easeInOut(Float(relative / entry))
+        let keys = checkpoints.sorted { $0.time < $1.time }
+        guard let first = keys.first else {
+            return (.default, 1)
         }
-        if exit > 0, relative > length - exit {
-            return Self.easeInOut(Float((length - relative) / exit))
-        }
-        return 1
-    }
+        // Before/beyond the outer keyframes, hold the nearest value.
+        if t <= first.time { return (first.pose, first.zoom) }
+        guard let last = keys.last else { return (first.pose, first.zoom) }
+        if t >= last.time { return (last.pose, last.zoom) }
 
-    private func insertionSpan<R: TimelineRange>(
-        at time: TimeInterval,
-        in ranges: [R]
-    ) -> ClosedRange<TimeInterval>? {
-        let t = min(max(time, 0), duration)
-        // A playhead strictly inside another range has no legal gap.
-        if ranges.contains(where: { t > $0.start && t < $0.end }) {
-            return nil
+        guard
+            let nextIndex = keys.firstIndex(where: { $0.time >= t }),
+            nextIndex > 0
+        else {
+            return (last.pose, last.zoom)
         }
-        let lower = ranges.filter { $0.end <= t }.map(\.end).max() ?? 0
-        let upper = ranges.filter { $0.start >= t }.map(\.start).min() ?? duration
-        let gap = upper - lower
-        guard gap >= Self.minimumRangeLength else { return nil }
-        let length = min(Self.defaultRangeLength, gap)
-        let start = min(max(t - length / 2, lower), upper - length)
-        return start...(start + length)
-    }
 
-    private func clamped<R: TimelineRange>(_ updated: R, in ranges: [R]) -> R {
-        guard let current = ranges.first(where: { $0.id == updated.id }) else { return updated }
-        let minLength = Self.minimumRangeLength
-        let others = ranges.filter { $0.id != updated.id }
-        let lowerBound = others.filter { $0.start <= current.start }.map(\.end).max() ?? 0
-        let upperBound = others.filter { $0.start > current.start }.map(\.start).min() ?? duration
-        guard upperBound - lowerBound >= minLength else { return current }
-
-        var result = updated
-        if abs(updated.length - current.length) < 0.000_1 {
-            let start = min(
-                max(updated.start, lowerBound), max(lowerBound, upperBound - current.length))
-            result.start = start
-            result.end = start + current.length
-        } else {
-            let start = min(max(updated.start, lowerBound), upperBound - minLength)
-            let end = min(max(updated.end, start + minLength), upperBound)
-            result.start = start
-            result.end = end
-        }
-        return result
+        let start = keys[nextIndex - 1]
+        let end = keys[nextIndex]
+        let span = end.time - start.time
+        let raw = span > 0 ? (t - start.time) / span : 1
+        let eased = Self.easeInOut(Float(raw))
+        return (
+            start.pose.interpolated(to: end.pose, t: eased),
+            start.zoom + (end.zoom - start.zoom) * eased
+        )
     }
 
     static func easeInOut(_ t: Float) -> Float {

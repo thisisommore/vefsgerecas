@@ -11,182 +11,154 @@ import simd
 @testable import YomMock
 
 struct CameraTimelineTests {
-    @Test @MainActor func startsEmptyWithDefaultDuration() {
+    @Test @MainActor func startsWithDefaultCheckpoint() {
         let timeline = CameraTimeline()
-        #expect(timeline.zoomRanges.isEmpty)
-        #expect(timeline.orbitRanges.isEmpty)
-        #expect(timeline.basePose == .default)
+        #expect(timeline.checkpoints.count == 1)
+        #expect(timeline.checkpoints[0].time == 0)
+        #expect(timeline.checkpoints[0].pose == .default)
+        #expect(timeline.checkpoints[0].zoom == 1)
         #expect(timeline.duration == 12)
         #expect(timeline.currentFrame == 1)
-        #expect(timeline.evaluatedZoom() == 1)
-        #expect(timeline.evaluatedOrbit() == .default)
+        let state = timeline.evaluatedState()
+        #expect(state.zoom == 1)
+        #expect(state.orbit == .default)
     }
 
-    @Test @MainActor func addCreatesSortedRangeWithDefaultSpan() {
+    @Test @MainActor func saveInsertsSortedCheckpointAndSelectsIt() {
         let timeline = CameraTimeline()
-        let late = timeline.addZoomRange(at: 8, zoom: 2)
-        let early = timeline.addZoomRange(at: 2, zoom: 1.5)
+        let late = timeline.saveCheckpoint(
+            at: 8, pose: .default, zoom: 2)
+        let early = timeline.saveCheckpoint(
+            at: 2, pose: .default, zoom: 1.5)
 
-        #expect(late != nil)
-        #expect(early != nil)
-        #expect(timeline.zoomRanges.map(\.start) == timeline.zoomRanges.map(\.start).sorted())
-        #expect(abs(timeline.zoomRanges[0].length - CameraTimeline.defaultRangeLength) < 0.000_1)
-        #expect(timeline.selectedZoomRangeID == early?.id)
+        #expect(late.id != early.id)
+        #expect(timeline.checkpoints.count == 3)
+        #expect(timeline.checkpoints.map(\.time) == timeline.checkpoints.map(\.time).sorted())
+        #expect(timeline.selectedCheckpointID == early.id)
     }
 
-    @Test @MainActor func addClampsIntoDuration() {
+    @Test @MainActor func saveUpdatesExistingCheckpointAtSameTime() {
         let timeline = CameraTimeline()
-        let leading = timeline.addZoomRange(at: 0, zoom: 2)
-        let trailing = timeline.addOrbitRange(at: 12, pose: .default)
+        let first = timeline.saveCheckpoint(at: 2, pose: .default, zoom: 1.5)
+        let updated = timeline.saveCheckpoint(at: 2, pose: .default, zoom: 4)
 
-        #expect(leading != nil)
-        #expect(trailing != nil)
-        #expect(leading?.start == 0)
-        #expect(abs((leading?.end ?? 0) - CameraTimeline.defaultRangeLength) < 0.000_1)
-        #expect(trailing?.end == 12)
-        #expect(abs((trailing?.start ?? 0) - (12 - CameraTimeline.defaultRangeLength)) < 0.000_1)
+        #expect(first.id == updated.id)
+        #expect(timeline.checkpoints.count == 2)
+        #expect(abs(timeline.checkpoints[1].zoom - 4) < 0.000_1)
+        #expect(timeline.checkpointAtPlayhead == nil)  // playhead not at 2 yet
     }
 
-    @Test @MainActor func addRefusesPlayheadInsideExistingRange() {
+    @Test @MainActor func saveClampsIntoDuration() {
         let timeline = CameraTimeline()
-        let first = timeline.addZoomRange(at: 6, zoom: 2)
-        #expect(first != nil)
+        timeline.saveCheckpoint(at: -5, pose: .default, zoom: 2)
+        timeline.saveCheckpoint(at: 99, pose: .default, zoom: 3)
 
-        let mid = (first!.start + first!.end) / 2
-        #expect(timeline.addZoomRange(at: mid, zoom: 3) == nil)
-        #expect(timeline.zoomRanges.count == 1)
+        #expect(timeline.checkpoints[0].time == 0)
+        #expect(timeline.checkpoints.last?.time == 12)
     }
 
-    @Test @MainActor func updateClampsToBoundsAndMinimumLength() {
+    @Test @MainActor func checkpointAtPlayheadMatchesWithinFrame() {
         let timeline = CameraTimeline()
-        guard var range = timeline.addZoomRange(at: 6, zoom: 2) else {
-            Issue.record("expected a zoom range")
-            return
-        }
+        timeline.saveCheckpoint(at: 4.1, pose: .default, zoom: 2)
+        timeline.seek(to: 4.1)
+        #expect(timeline.checkpointAtPlayhead != nil)
+        #expect(abs((timeline.checkpointAtPlayhead?.time ?? -1) - 4.1) < CameraTimeline.snapTolerance)
 
-        range.start = -2
-        range.end = 20
-        timeline.updateZoomRange(range)
-        #expect(timeline.zoomRanges[0].start == 0)
-        #expect(timeline.zoomRanges[0].end == 12)
-
-        range = timeline.zoomRanges[0]
-        range.end = range.start + 0.05
-        timeline.updateZoomRange(range)
-        #expect(abs(timeline.zoomRanges[0].length - CameraTimeline.minimumRangeLength) < 0.000_1)
+        timeline.seek(to: 5)
+        #expect(timeline.checkpointAtPlayhead == nil)
     }
 
-    @Test @MainActor func updateBlocksNeighborOverlapOnMoveAndResize() {
+    @Test @MainActor func deletesCheckpointButKeepsOne() {
         let timeline = CameraTimeline()
-        guard var left = timeline.addZoomRange(at: 2, zoom: 2),
-              var right = timeline.addZoomRange(at: 8, zoom: 3)
-        else {
-            Issue.record("expected two zoom ranges")
-            return
-        }
+        let a = timeline.saveCheckpoint(at: 2, pose: .default, zoom: 2)
+        let b = timeline.saveCheckpoint(at: 6, pose: .default, zoom: 3)
 
-        let leftEndBeforeMove = left.end
-        let rightStart = right.start
-        left.start = right.start
-        left.end = left.start + leftEndBeforeMove - timeline.zoomRanges[0].start
-        timeline.updateZoomRange(left)
-        #expect(timeline.zoomRanges[0].end <= rightStart + 0.000_1)
+        timeline.deleteCheckpoint(id: a.id)
+        #expect(timeline.checkpoints.map(\.id).contains(b.id))
+        #expect(!timeline.checkpoints.map(\.id).contains(a.id))
 
-        left = timeline.zoomRanges[0]
-        left.end = rightStart + 2
-        timeline.updateZoomRange(left)
-        #expect(timeline.zoomRanges[0].end <= rightStart + 0.000_1)
-
-        right = timeline.zoomRanges[1]
-        let leftEnd = timeline.zoomRanges[0].end
-        right.start = leftEnd - 2
-        timeline.updateZoomRange(right)
-        #expect(timeline.zoomRanges[1].start >= leftEnd - 0.000_1)
+        // The initial checkpoint can't be removed below one total.
+        timeline.deleteCheckpoint(id: b.id)
+        timeline.deleteCheckpoint(id: b.id)
+        #expect(timeline.checkpoints.count == 1)
     }
 
-    @Test @MainActor func evaluatedZoomRampsHoldsAndReturnsToOne() {
+    @Test @MainActor func evaluatedStateInterpolatesBetweenCheckpoints() {
         let timeline = CameraTimeline()
-        let amount: Float = 3
-        guard let range = timeline.addZoomRange(at: 6, zoom: amount) else {
-            Issue.record("expected a zoom range")
-            return
-        }
+        let base = OrbitPose(yaw: radians(0), pitch: 0, radius: 1)
+        let target = OrbitPose(yaw: radians(20), pitch: 0.2, radius: 1.4)
+        timeline.saveCheckpoint(at: 0, pose: base, zoom: 1)
+        timeline.saveCheckpoint(at: 4, pose: target, zoom: 3)
 
-        let transition = expectedTransition(length: range.length)
-        let entryMid = range.start + transition / 2
-        let exitMid = range.end - transition / 2
-        let hold = (range.start + range.end) / 2
-        let easedMid = CameraTimeline.easeInOut(0.5)
-        let midValue = 1 + (amount - 1) * easedMid
+        let start = timeline.evaluatedState(at: 0)
+        #expect(start.orbit.yaw == 0)
+        #expect(abs(start.zoom - 1) < 0.000_1)
 
-        #expect(abs(timeline.evaluatedZoom(at: 0) - 1) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: range.start - 0.01) - 1) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: entryMid) - midValue) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: hold) - amount) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: exitMid) - midValue) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: range.end + 0.01) - 1) < 0.000_1)
+        let end = timeline.evaluatedState(at: 4)
+        #expect(abs(end.orbit.yaw - radians(20)) < 0.000_1)
+        #expect(abs(end.zoom - 3) < 0.000_1)
+
+        let mid = timeline.evaluatedState(at: 2)
+        let eased = CameraTimeline.easeInOut(0.5)
+        #expect(abs(angleDelta(mid.orbit.yaw, base.yaw + (target.yaw - base.yaw) * eased)) < 0.000_1)
+        #expect(abs(mid.zoom - (1 + (3 - 1) * eased)) < 0.000_1)
     }
 
-    @Test @MainActor func evaluatedZoomPinnedAtZeroIsFullAmount() {
+    @Test @MainActor func evaluatedStateHoldsOutsideOuterKeyframes() {
         let timeline = CameraTimeline()
-        guard let range = timeline.addZoomRange(at: 0, zoom: 2.5) else {
-            Issue.record("expected a zoom range")
-            return
-        }
+        let early = OrbitPose(yaw: radians(10), pitch: 0, radius: 1)
+        let late = OrbitPose(yaw: radians(40), pitch: 0.1, radius: 1.3)
+        timeline.saveCheckpoint(at: 2, pose: early, zoom: 2)
+        timeline.saveCheckpoint(at: 6, pose: late, zoom: 4)
 
-        #expect(range.start == 0)
-        #expect(abs(timeline.evaluatedZoom(at: 0) - 2.5) < 0.000_1)
-        #expect(abs(timeline.evaluatedZoom(at: 0.05) - 2.5) < 0.000_1)
+        let before = timeline.evaluatedState(at: 0)
+        #expect(before.orbit.yaw == early.yaw)
+        #expect(abs(before.zoom - 2) < 0.000_1)
+
+        let after = timeline.evaluatedState(at: 12)
+        #expect(after.orbit.yaw == late.yaw)
+        #expect(abs(after.zoom - 4) < 0.000_1)
     }
 
-    @Test @MainActor func evaluatedOrbitUsesShortArcAndHoldsPose() {
+    @Test @MainActor func updateSelectedCheckpointEditsOnlyThatKey() {
         let timeline = CameraTimeline()
-        let base = OrbitPose(yaw: radians(350), pitch: 0, radius: 1)
-        let target = OrbitPose(yaw: radians(10), pitch: 0.2, radius: 1.4)
-        timeline.seedBasePoseIfDefault(base)
+        let first = timeline.saveCheckpoint(at: 2, pose: .default, zoom: 2)
+        timeline.saveCheckpoint(at: 6, pose: .default, zoom: 3)
 
-        guard let range = timeline.addOrbitRange(at: 6, pose: target) else {
-            Issue.record("expected an orbit range")
-            return
-        }
+        timeline.selectedCheckpointID = first.id
+        timeline.updateSelectedCheckpoint(zoom: 5)
+        #expect(abs(timeline.checkpoints[1].zoom - 5) < 0.000_1)
+        #expect(abs(timeline.checkpoints[2].zoom - 3) < 0.000_1)
 
-        let transition = expectedTransition(length: range.length)
-        let entryMid = range.start + transition / 2
-        let hold = (range.start + range.end) / 2
-        let mid = timeline.evaluatedOrbit(at: entryMid)
-        let expectedMid = base.interpolated(to: target, t: CameraTimeline.easeInOut(0.5))
-
-        #expect(timeline.evaluatedOrbit(at: 0) == base)
-        #expect(abs(angleDelta(mid.yaw, expectedMid.yaw)) < 0.000_1)
-        #expect(abs(mid.pitch - expectedMid.pitch) < 0.000_1)
-        #expect(abs(angleDelta(mid.yaw, 0)) < 0.05)
-        #expect(abs(angleDelta(mid.yaw, .pi)) > 1)
-        #expect(timeline.evaluatedOrbit(at: hold) == target)
+        let pose = OrbitPose(yaw: 0.4, pitch: 0.05, radius: 0.7)
+        timeline.updateSelectedCheckpoint(pose: pose)
+        #expect(timeline.checkpoints[1].pose == pose)
+        #expect(timeline.checkpoints[2].pose == .default)
     }
 
-    @Test @MainActor func seedBasePoseFreezesAfterFirstOrbitRange() {
+    @Test @MainActor func selectSeeksToCheckpointTime() {
+        let timeline = CameraTimeline()
+        let checkpoint = timeline.saveCheckpoint(at: 7, pose: .default, zoom: 2)
+        timeline.select(checkpoint)
+        #expect(abs(timeline.currentTime - 7) < 0.000_1)
+        #expect(timeline.selectedCheckpointID == checkpoint.id)
+    }
+
+    @Test @MainActor func seedBasePoseFreezesAtFirstCheckpoint() {
         let timeline = CameraTimeline()
         let live = OrbitPose(position: SIMD3<Float>(0.4, 0.1, 0.8))
         timeline.seedBasePoseIfDefault(live)
-        #expect(almostEqual(timeline.basePose.position, live.position))
+        #expect(timeline.checkpoints[0].pose == live)
 
+        timeline.saveCheckpoint(at: 3, pose: live, zoom: 2)
         let later = OrbitPose(position: SIMD3<Float>(0.1, 0.2, 0.1))
         timeline.seedBasePoseIfDefault(later)
-        #expect(almostEqual(timeline.basePose.position, later.position))
-
-        #expect(timeline.addOrbitRange(at: 3, pose: later) != nil)
-        timeline.seedBasePoseIfDefault(.default)
-        #expect(almostEqual(timeline.basePose.position, later.position))
+        #expect(timeline.checkpoints[0].pose == live)
     }
 
-    @Test @MainActor func durationCannotShrinkPastLatestRangeEnd() {
+    @Test @MainActor func durationCannotShrinkPastLatestCheckpoint() {
         let timeline = CameraTimeline()
-        guard var range = timeline.addZoomRange(at: 6, zoom: 2) else {
-            Issue.record("expected a zoom range")
-            return
-        }
-        range.end = 8
-        timeline.updateZoomRange(range)
+        timeline.saveCheckpoint(at: 8, pose: .default, zoom: 2)
 
         timeline.setDuration(3)
         #expect(abs(timeline.duration - 8) < 0.000_1)
@@ -195,44 +167,11 @@ struct CameraTimelineTests {
 
     @Test @MainActor func removeClearsSelection() {
         let timeline = CameraTimeline()
-        guard let range = timeline.addZoomRange(at: 2, zoom: 2) else {
-            Issue.record("expected a zoom range")
-            return
-        }
+        let checkpoint = timeline.saveCheckpoint(at: 2, pose: .default, zoom: 2)
+        #expect(timeline.selectedCheckpointID == checkpoint.id)
 
-        #expect(timeline.selectedZoomRangeID == range.id)
-        timeline.removeZoomRange(id: range.id)
-        #expect(timeline.selectedZoomRangeID == nil)
-        #expect(timeline.zoomRanges.isEmpty)
-    }
-
-    @Test @MainActor func updateFromSceneReplacesSelectedRangeValueOnly() {
-        let timeline = CameraTimeline()
-        guard let first = timeline.addZoomRange(at: 2, zoom: 2),
-              timeline.addZoomRange(at: 8, zoom: 3) != nil
-        else {
-            Issue.record("expected two zoom ranges")
-            return
-        }
-
-        timeline.selectedZoomRangeID = first.id
-        timeline.updateSelectedZoom(5)
-        #expect(abs(timeline.zoomRanges[0].zoom - 5) < 0.000_1)
-        #expect(abs(timeline.zoomRanges[1].zoom - 3) < 0.000_1)
-
-        let pose = OrbitPose(yaw: 1, pitch: 0.1, radius: 0.5)
-        let other = OrbitPose(yaw: -1, pitch: -0.1, radius: 0.8)
-        guard let orbit = timeline.addOrbitRange(at: 2, pose: pose),
-              timeline.addOrbitRange(at: 8, pose: other) != nil
-        else {
-            Issue.record("expected two orbit ranges")
-            return
-        }
-        timeline.selectedOrbitRangeID = orbit.id
-        let updated = OrbitPose(yaw: 0.4, pitch: 0.05, radius: 0.7)
-        timeline.updateSelectedOrbit(updated)
-        #expect(timeline.orbitRanges[0].pose == updated)
-        #expect(timeline.orbitRanges[1].pose == other)
+        timeline.deleteCheckpoint(id: checkpoint.id)
+        #expect(timeline.selectedCheckpointID == nil)
     }
 
     @Test func orbitPoseKeepsRotation() {
@@ -264,10 +203,6 @@ struct CameraTimelineTests {
         #expect(timeline.currentTime == 0)
         #expect(timeline.isPlaying)
     }
-}
-
-private func expectedTransition(length: TimeInterval) -> TimeInterval {
-    min(CameraTimeline.maximumTransition, max(0.12, length / 2.4))
 }
 
 private func radians(_ degrees: Float) -> Float {

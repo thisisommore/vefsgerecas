@@ -34,8 +34,7 @@ struct ContentView: View {
                     selectedTab: $inspectorTab,
                     cameraAvailable: cameraReady,
                     timeline: timeline,
-                    onUpdateZoomFromScene: updateZoomFromScene,
-                    onUpdateOrbitFromScene: updateOrbitFromScene
+                    onCapture: captureSelectedCheckpoint
                 )
                 .frame(width: 268)
             }
@@ -46,10 +45,7 @@ struct ContentView: View {
             TimelineBar(
                 timeline: timeline,
                 cameraAvailable: cameraReady,
-                onAddZoomRange: addZoomRange,
-                onAddOrbitRange: addOrbitRange,
-                onUpdateZoomFromScene: updateZoomFromScene,
-                onUpdateOrbitFromScene: updateOrbitFromScene
+                onSaveCheckpoint: saveCheckpoint
             )
             .frame(height: 148)
         }
@@ -157,23 +153,22 @@ struct ContentView: View {
         }
     }
 
-    private func addZoomRange() {
+    private func saveCheckpoint() {
         scene.syncPoseFromCamera(zoom: zoom)
-        timeline.addZoomRange(at: timeline.currentTime, zoom: zoom)
+        timeline.saveCheckpoint(
+            at: timeline.currentTime,
+            pose: scene.captureOrbitPose(),
+            zoom: zoom
+        )
     }
 
-    private func addOrbitRange() {
+    /// Capture the currently orbited/zoomed scene into the selected checkpoint.
+    private func captureSelectedCheckpoint() {
         scene.syncPoseFromCamera(zoom: zoom)
-        timeline.addOrbitRange(at: timeline.currentTime, pose: scene.captureOrbitPose())
-    }
-
-    private func updateZoomFromScene() {
-        timeline.updateSelectedZoom(zoom)
-    }
-
-    private func updateOrbitFromScene() {
-        scene.syncPoseFromCamera(zoom: zoom)
-        timeline.updateSelectedOrbit(scene.captureOrbitPose())
+        timeline.updateSelectedCheckpoint(
+            pose: scene.captureOrbitPose(),
+            zoom: zoom
+        )
     }
 
     private func applyEvaluatedPose() {

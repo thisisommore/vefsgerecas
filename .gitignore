@@ -1,0 +1,9 @@
+# Build artifacts
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Tool artifacts
+.commandcode/
