@@ -39,20 +39,21 @@ nonisolated struct OrbitPose: Equatable, Sendable {
     }
 }
 
-/// A single moment in the timeline capturing both the camera orbit and the
-/// zoom. The timeline animates from one checkpoint to the next, interpolating
-/// orbit and zoom together.
+/// A single moment in the timeline capturing both the camera orbit, zoom and pan.
+/// The timeline animates from one checkpoint to the next, interpolating all together.
 nonisolated struct CameraCheckpoint: Identifiable, Equatable, Sendable {
     let id: UUID
     var time: TimeInterval
     var pose: OrbitPose
     var zoom: Float
+    var pan: SIMD3<Float>
 
-    init(id: UUID = UUID(), time: TimeInterval, pose: OrbitPose, zoom: Float) {
+    init(id: UUID = UUID(), time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) {
         self.id = id
         self.time = time
         self.pose = pose
         self.zoom = zoom
+        self.pan = pan
     }
 }
 
@@ -148,32 +149,34 @@ final class CameraTimeline {
         currentTime = min(currentTime, duration)
     }
 
-    /// Save the given orbit + zoom at the playhead, updating an existing
+    /// Save the given orbit + zoom + pan at the playhead, updating an existing
     /// checkpoint at that time or inserting a new one.
     @discardableResult
-    func saveCheckpoint(at time: TimeInterval, pose: OrbitPose, zoom: Float) -> CameraCheckpoint {
+    func saveCheckpoint(at time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) -> CameraCheckpoint {
         let t = min(max(time, 0), duration)
         if let index = checkpoints.firstIndex(where: { abs($0.time - t) <= Self.snapTolerance }) {
             checkpoints[index].time = t
             checkpoints[index].pose = pose
             checkpoints[index].zoom = zoom
+            checkpoints[index].pan = pan
             selectedCheckpointID = checkpoints[index].id
             return checkpoints[index]
         }
-        let checkpoint = CameraCheckpoint(time: t, pose: pose, zoom: zoom)
+        let checkpoint = CameraCheckpoint(time: t, pose: pose, zoom: zoom, pan: pan)
         checkpoints.append(checkpoint)
         checkpoints.sort { $0.time < $1.time }
         selectedCheckpointID = checkpoint.id
         return checkpoint
     }
 
-    func updateSelectedCheckpoint(pose: OrbitPose? = nil, zoom: Float? = nil) {
+    func updateSelectedCheckpoint(pose: OrbitPose? = nil, zoom: Float? = nil, pan: SIMD3<Float>? = nil) {
         guard
             let id = selectedCheckpointID,
             let index = checkpoints.firstIndex(where: { $0.id == id })
         else { return }
         if let pose { checkpoints[index].pose = pose }
         if let zoom { checkpoints[index].zoom = zoom }
+        if let pan { checkpoints[index].pan = pan }
     }
 
     func deleteCheckpoint(id: UUID) {
@@ -201,23 +204,23 @@ final class CameraTimeline {
         checkpoints[0].pose = pose
     }
 
-    /// Interpolated orbit + zoom at a time, eased between adjacent checkpoints.
-    func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float) {
+    /// Interpolated orbit + zoom + pan at a time, eased between adjacent checkpoints.
+    func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>) {
         let t = time ?? currentTime
         let keys = checkpoints.sorted { $0.time < $1.time }
         guard let first = keys.first else {
-            return (.default, 1)
+            return (.default, 1, .zero)
         }
         // Before/beyond the outer keyframes, hold the nearest value.
-        if t <= first.time { return (first.pose, first.zoom) }
-        guard let last = keys.last else { return (first.pose, first.zoom) }
-        if t >= last.time { return (last.pose, last.zoom) }
+        if t <= first.time { return (first.pose, first.zoom, first.pan) }
+        guard let last = keys.last else { return (first.pose, first.zoom, first.pan) }
+        if t >= last.time { return (last.pose, last.zoom, last.pan) }
 
         guard
             let nextIndex = keys.firstIndex(where: { $0.time >= t }),
             nextIndex > 0
         else {
-            return (last.pose, last.zoom)
+            return (last.pose, last.zoom, last.pan)
         }
 
         let start = keys[nextIndex - 1]
@@ -225,9 +228,11 @@ final class CameraTimeline {
         let span = end.time - start.time
         let raw = span > 0 ? (t - start.time) / span : 1
         let eased = Self.easeInOut(Float(raw))
+        let pan = start.pan + (end.pan - start.pan) * eased
         return (
             start.pose.interpolated(to: end.pose, t: eased),
-            start.zoom + (end.zoom - start.zoom) * eased
+            start.zoom + (end.zoom - start.zoom) * eased,
+            pan
         )
     }
 

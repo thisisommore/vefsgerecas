@@ -61,17 +61,55 @@ struct ProjectCheckpoint: Codable, Equatable {
     var pitch: Float
     var radius: Float
     var zoom: Float
+    var panX: Float
+    var panY: Float
+    var panZ: Float
 
-    init(id: UUID = UUID(), time: Double, yaw: Float, pitch: Float, radius: Float, zoom: Float) {
+    init(id: UUID = UUID(), time: Double, yaw: Float, pitch: Float, radius: Float, zoom: Float, pan: SIMD3<Float> = .zero) {
         self.id = id.uuidString
         self.time = time
         self.yaw = yaw
         self.pitch = pitch
         self.radius = radius
         self.zoom = zoom
+        self.panX = pan.x
+        self.panY = pan.y
+        self.panZ = pan.z
+    }
+
+    // Backward compat: old files without pan decode as 0
+    enum CodingKeys: String, CodingKey {
+        case id, time, yaw, pitch, radius, zoom, panX, panY, panZ
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        time = try c.decode(Double.self, forKey: .time)
+        yaw = try c.decode(Float.self, forKey: .yaw)
+        pitch = try c.decode(Float.self, forKey: .pitch)
+        radius = try c.decode(Float.self, forKey: .radius)
+        zoom = try c.decode(Float.self, forKey: .zoom)
+        panX = try c.decodeIfPresent(Float.self, forKey: .panX) ?? 0
+        panY = try c.decodeIfPresent(Float.self, forKey: .panY) ?? 0
+        panZ = try c.decodeIfPresent(Float.self, forKey: .panZ) ?? 0
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(time, forKey: .time)
+        try c.encode(yaw, forKey: .yaw)
+        try c.encode(pitch, forKey: .pitch)
+        try c.encode(radius, forKey: .radius)
+        try c.encode(zoom, forKey: .zoom)
+        try c.encode(panX, forKey: .panX)
+        try c.encode(panY, forKey: .panY)
+        try c.encode(panZ, forKey: .panZ)
     }
 
     var uuid: UUID { UUID(uuidString: id) ?? UUID() }
+    var pan: SIMD3<Float> { SIMD3(panX, panY, panZ) }
 }
 
 /// Serializable edit document stored as `project.json` inside a `.yommock` package.
@@ -89,7 +127,7 @@ struct YomMockProjectDocument: Codable, Equatable {
     var displayRelativePath: String? // e.g. "assets/display.png"
     var displayFileName: String?
 
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.version == rhs.version

@@ -68,7 +68,7 @@ final class YomMockStore {
 
     func makeDocument() -> YomMockProjectDocument {
         let checkpoints: [ProjectCheckpoint] = timeline.checkpoints.map { cp in
-            ProjectCheckpoint(id: cp.id, time: cp.time, yaw: cp.pose.yaw, pitch: cp.pose.pitch, radius: cp.pose.radius, zoom: cp.zoom)
+            ProjectCheckpoint(id: cp.id, time: cp.time, yaw: cp.pose.yaw, pitch: cp.pose.pitch, radius: cp.pose.radius, zoom: cp.zoom, pan: cp.pan)
         }
         let doc = YomMockProjectDocument(
             version: YomMockProjectDocument.currentVersion,
@@ -105,7 +105,7 @@ final class YomMockStore {
         let newCheckpoints: [CameraCheckpoint] = doc.checkpoints.map { pc in
             let pose = OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius)
             let id = UUID(uuidString: pc.id) ?? UUID()
-            return CameraCheckpoint(id: id, time: pc.time, pose: pose, zoom: pc.zoom)
+            return CameraCheckpoint(id: id, time: pc.time, pose: pose, zoom: pc.zoom, pan: pc.pan)
         }
         // Ensure sorted
         let sorted = newCheckpoints.sorted { $0.time < $1.time }

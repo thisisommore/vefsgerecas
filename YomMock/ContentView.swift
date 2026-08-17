@@ -123,11 +123,12 @@ struct ContentView: View {
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
                 camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
-                let startPose = store.timeline.evaluatedState(at: 0).orbit
-                camera.look(at: .zero, from: startPose.position, relativeTo: nil)
+                let startState = store.timeline.evaluatedState(at: 0)
+                camera.look(at: .zero, from: startState.orbit.position, relativeTo: nil)
                 scene.camera = camera
-                scene.orbitPose = startPose
-                scene.zoom = store.timeline.evaluatedState(at: 0).zoom
+                scene.orbitPose = startState.orbit
+                scene.zoom = startState.zoom
+                scene.panOffset = startState.pan
                 cameraReady = true
                 content.add(camera)
 
@@ -159,7 +160,7 @@ struct ContentView: View {
                     // Don't set cameraTarget — orbit controls use the target
                     // bounds to pick a tight starting distance.
                     let initial = store.timeline.evaluatedState(at: 0)
-                    scene.apply(orbit: initial.orbit, zoom: initial.zoom)
+                    scene.apply(orbit: initial.orbit, zoom: initial.zoom, pan: initial.pan)
                     Task { @MainActor in
                         if store.zoom != initial.zoom {
                             store.zoom = initial.zoom
@@ -275,7 +276,8 @@ struct ContentView: View {
         store.timeline.saveCheckpoint(
             at: store.timeline.currentTime,
             pose: scene.captureOrbitPose(),
-            zoom: store.zoom
+            zoom: store.zoom,
+            pan: scene.panOffset
         )
         store.markDirty()
         updateWindowTitle()
@@ -283,7 +285,7 @@ struct ContentView: View {
 
     private func applyEvaluatedPose() {
         let state = store.timeline.evaluatedState()
-        scene.apply(orbit: state.orbit, zoom: state.zoom)
+        scene.apply(orbit: state.orbit, zoom: state.zoom, pan: state.pan)
         if store.zoom != state.zoom {
             store.zoom = state.zoom
         }
@@ -307,7 +309,7 @@ struct ContentView: View {
                 userMovedCamera = true
                 scene.hasUserInteracted = true
             } else {
-                scene.apply(orbit: studio, zoom: store.zoom)
+                scene.apply(orbit: studio, zoom: store.zoom, pan: .zero)
                 return
             }
         }
@@ -668,11 +670,16 @@ final class PhoneScene {
     var panOffset = SIMD3<Float>.zero
     var hasUserInteracted = false
 
-    func apply(orbit: OrbitPose, zoom: Float) {
+    func apply(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) {
         orbitPose = orbit
         self.zoom = zoom
+        panOffset = pan
         applyCamera(from: orbit.position)
         applyZoom()
+    }
+
+    func applyWithCurrentPan(orbit: OrbitPose, zoom: Float) {
+        apply(orbit: orbit, zoom: zoom, pan: panOffset)
     }
 
     func syncPoseFromCamera(zoom: Float) {
