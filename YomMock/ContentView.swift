@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var displayFileName: String?
     @State private var displayStatus: String?
     @State private var displayLoadTask: Task<Void, Never>?
+    @State private var isShiftHeld = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -128,10 +129,20 @@ struct ContentView: View {
             }
             .realityViewCameraControls(timeline.isPlaying ? .none : .orbit)
             .background {
-                ScrollZoomCatcher { event in
-                    guard !timeline.isPlaying else { return }
-                    userMovedCamera = true
-                    animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
+                ZStack {
+                    ScrollZoomCatcher { event in
+                        guard !timeline.isPlaying else { return }
+                        userMovedCamera = true
+                        animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
+                    }
+                    CameraPanCatcher(
+                        onShiftChanged: { held in isShiftHeld = held },
+                        onPan: { delta in
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.pan(by: delta)
+                        }
+                    )
                 }
             }
 
@@ -566,6 +577,8 @@ final class PhoneScene {
     var zoom: Float = 1
     var baseScale: Float = 1
     var modelCenter = SIMD3<Float>.zero
+    var target = SIMD3<Float>.zero
+    var panOffset = SIMD3<Float>.zero
 
     func apply(orbit: OrbitPose, zoom: Float) {
         orbitPose = orbit
@@ -577,9 +590,40 @@ final class PhoneScene {
     func syncPoseFromCamera(zoom: Float) {
         guard let camera else { return }
         let position = camera.position(relativeTo: nil)
-        guard simd_length(position) > 1e-4 else { return }
-        orbitPose = OrbitPose(position: position)
+        let orbitPos = position - target
+        guard simd_length(orbitPos) > 1e-4 else { return }
+        orbitPose = OrbitPose(position: orbitPos)
         self.zoom = zoom
+    }
+
+    /// Pan by moving the phone in the camera's right/up plane.
+    /// This keeps the RealityKit orbit target at the origin, so the
+    /// built-in `.orbit` controls don't snap back after shift-drag.
+    func pan(by delta: SIMD2<Float>) {
+        guard let camera, let phone else { return }
+        let t = camera.transformMatrix(relativeTo: nil)
+        let right = SIMD3<Float>(t.columns.0.x, t.columns.0.y, t.columns.0.z)
+        let up = SIMD3<Float>(t.columns.1.x, t.columns.1.y, t.columns.1.z)
+        let distance = max(simd_length(orbitPose.position), 0.5)
+        let zoomFactor = max(zoom, 0.1)
+        let factor = distance * 0.0012 / zoomFactor
+        // X inverted per feedback, Y kept as original (reverted).
+        panOffset -= right * delta.x * factor
+        panOffset += up * delta.y * factor
+        // Reapply phone position with current pan
+        let scale = baseScale * zoom
+        phone.position = -modelCenter * scale + panOffset
+        if let floor {
+            let bounds = phone.visualBounds(relativeTo: nil)
+            floor.position = [0, bounds.min.y - 0.0004, 0]
+        }
+    }
+
+    func resetPan() {
+        target = .zero
+        panOffset = .zero
+        applyCamera(from: orbitPose.position)
+        applyZoom()
     }
 
     func captureOrbitPose() -> OrbitPose {
@@ -603,7 +647,7 @@ final class PhoneScene {
             perspective.fieldOfViewInDegrees = Self.fieldOfView
             camera.components.set(perspective)
         }
-        camera.look(at: .zero, from: position, relativeTo: nil)
+        camera.look(at: target, from: target + position, relativeTo: nil)
     }
 
     func applyZoom() {
@@ -611,7 +655,7 @@ final class PhoneScene {
         let scale = baseScale * zoom
         guard scale > 0 else { return }
         phone.scale = SIMD3(repeating: scale)
-        phone.position = -modelCenter * scale
+        phone.position = -modelCenter * scale + panOffset
         if let floor {
             let bounds = phone.visualBounds(relativeTo: nil)
             floor.position = [0, bounds.min.y - 0.0004, 0]
@@ -664,6 +708,92 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
+        }
+    }
+}
+
+/// Shift + drag pans the camera (track) instead of orbiting. Monitors
+/// flagsChanged to toggle orbit off, and leftMouseDragged with shift to
+/// consume the event and drive PhoneScene.target.
+private struct CameraPanCatcher: NSViewRepresentable {
+    var onShiftChanged: (Bool) -> Void
+    var onPan: (SIMD2<Float>) -> Void
+
+    func makeNSView(context: Context) -> PanMonitorView {
+        let view = PanMonitorView()
+        view.onShiftChanged = onShiftChanged
+        view.onPan = onPan
+        return view
+    }
+
+    func updateNSView(_ view: PanMonitorView, context: Context) {
+        view.onShiftChanged = onShiftChanged
+        view.onPan = onPan
+    }
+
+    final class PanMonitorView: NSView {
+        var onShiftChanged: ((Bool) -> Void)?
+        var onPan: ((SIMD2<Float>) -> Void)?
+        private var flagsMonitor: Any?
+        private var dragMonitor: Any?
+        private var isShiftHeld = false
+        private var isDraggingInside = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            installMonitors()
+        }
+
+        deinit {
+            removeMonitors()
+        }
+
+        private func installMonitors() {
+            removeMonitors()
+            guard window != nil else { return }
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                guard let self else { return event }
+                let held = event.modifierFlags.contains(.shift)
+                if held != self.isShiftHeld {
+                    self.isShiftHeld = held
+                    self.onShiftChanged?(held)
+                }
+                return event
+            }
+            dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .leftMouseDragged]) { [weak self] event in
+                guard let self, let window = self.window, event.window === window else { return event }
+                let location = self.convert(event.locationInWindow, from: nil)
+                switch event.type {
+                case .leftMouseDown:
+                    isDraggingInside = bounds.contains(location) && event.modifierFlags.contains(.shift)
+                    return event
+                case .leftMouseUp:
+                    isDraggingInside = false
+                    return event
+                case .leftMouseDragged:
+                    let shift = event.modifierFlags.contains(.shift)
+                    if shift != isShiftHeld {
+                        isShiftHeld = shift
+                        onShiftChanged?(shift)
+                    }
+                    // Continue pan if drag started inside with shift, even if now outside
+                    if (isDraggingInside || bounds.contains(location)) && shift {
+                        // deltaX/deltaY are in points since last drag event
+                        let dx = Float(event.deltaX)
+                        let dy = Float(event.deltaY)
+                        onPan?(SIMD2<Float>(dx, dy))
+                        return nil // consume — prevents orbit
+                    }
+                    return event
+                default:
+                    return event
+                }
+            }
+        }
+
+        private func removeMonitors() {
+            if let m = flagsMonitor { NSEvent.removeMonitor(m); flagsMonitor = nil }
+            if let m = dragMonitor { NSEvent.removeMonitor(m); dragMonitor = nil }
         }
     }
 }
