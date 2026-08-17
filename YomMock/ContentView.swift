@@ -236,6 +236,7 @@ struct ContentView: View {
                     withName: "DisplayScreenshot",
                     options: TextureResource.CreateOptions(
                         semantic: .color,
+                        compression: .none,
                         mipmapsMode: .allocateAndGenerateAll
                     )
                 )
@@ -252,8 +253,21 @@ struct ContentView: View {
     }
 
     private static func cgImage(from nsImage: NSImage) throws -> CGImage {
+        // Prefer a CGImage already in sRGB to keep colors 1:1.
         var rect = NSRect(origin: .zero, size: nsImage.size)
         if let cg = nsImage.cgImage(forProposedRect: &rect, context: nil, hints: nil) {
+            if let cs = cg.colorSpace, cs.name == CGColorSpace.sRGB { return cg }
+            // Convert to sRGB if needed so RealityKit's .color semantic doesn't shift hues.
+            if let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+               let ctx = CGContext(
+                 data: nil, width: cg.width, height: cg.height,
+                 bitsPerComponent: 8, bytesPerRow: 0, space: sRGB,
+                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+               )
+            {
+                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+                if let converted = ctx.makeImage() { return converted }
+            }
             return cg
         }
         guard let tiff = nsImage.tiffRepresentation,
@@ -356,7 +370,7 @@ struct ContentView: View {
         }
     }
 
-    private func material(for name: String, finish: PhoneFinish) -> PhysicallyBasedMaterial {
+    private func material(for name: String, finish: PhoneFinish) -> any RealityKit.Material {
         let key = name.lowercased()
 
         if key.contains("screen") && !key.contains("glass") && !key.contains("edge") {
@@ -524,22 +538,19 @@ struct ContentView: View {
         return material
     }
 
-    private func screenMaterial(with texture: TextureResource) -> PhysicallyBasedMaterial {
-        var material = PhysicallyBasedMaterial()
-        let tex = MaterialParameters.Texture(texture)
-        material.baseColor = .init(texture: tex)
-        // Keep a hint of physical response so the screen still reads as glass
-        // under the studio lights, but let the image dominate.
-        material.metallic = .init(floatLiteral: 0)
-        material.roughness = .init(floatLiteral: 0.02)
-        material.specular = .init(floatLiteral: 0.08)
-        material.clearcoat = .init(floatLiteral: 0.95)
-        material.clearcoatRoughness = .init(floatLiteral: 0.08)
-        // Brighter emissive so the screenshot reads like a lit display
-        // even when angled away from the key light.
-        material.emissiveColor = .init(texture: tex)
-        material.emissiveIntensity = 1.4
-        return material
+    private func screenMaterial(with texture: TextureResource) -> any RealityKit.Material {
+        // Unlit shows the texture 1:1 — no IBL tint, no ACES washout, no double exposure.
+        // Keeps high-res screenshots sharp and color-accurate.
+        // applyPostProcessToneMap = false prevents HDR washout (macOS 15+).
+        if #available(macOS 15.0, *) {
+            var material = UnlitMaterial(color: .white, applyPostProcessToneMap: false)
+            material.color = .init(tint: .white, texture: .init(texture))
+            return material
+        } else {
+            var material = UnlitMaterial(color: .white)
+            material.color = .init(tint: .white, texture: .init(texture))
+            return material
+        }
     }
 }
 
