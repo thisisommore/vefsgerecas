@@ -77,31 +77,27 @@ private struct PhoneInspectorPanel: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 16) {
                 ColorPicker("Custom", selection: $customColor, supportsOpacity: false)
                     .labelsHidden()
-                    .frame(width: 22, height: 22)
                     .onChange(of: customColor) { _, _ in
                         selectedColor = .custom
                     }
-                Circle()
-                    .fill(Color(nsColor: NSColor(customColor)))
-                    .frame(width: 10, height: 10)
-                    .opacity(selectedColor == .custom ? 1 : 0)
-                Text("Custom")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background {
                 Capsule()
-                    .fill(selectedColor == .custom ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                    .fill(
+                        selectedColor == .custom
+                            ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
             }
             .overlay {
                 Capsule()
-                    .strokeBorder(selectedColor == .custom ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06), lineWidth: 1)
+                    .strokeBorder(
+                        selectedColor == .custom
+                            ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06),
+                        lineWidth: 1)
             }
             .onTapGesture { selectedColor = .custom }
         }
@@ -127,27 +123,27 @@ private struct BackdropInspectorPanel: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 16) {
                 ColorPicker("Custom", selection: $customBackground, supportsOpacity: false)
                     .labelsHidden()
-                    .frame(width: 22, height: 22)
                     .onChange(of: customBackground) { _, _ in
                         background = .custom
                     }
-                Text("Custom")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                Spacer()
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background {
                 Capsule()
-                    .fill(background == .custom ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
+                    .fill(
+                        background == .custom
+                            ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
             }
             .overlay {
                 Capsule()
-                    .strokeBorder(background == .custom ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06), lineWidth: 1)
+                    .strokeBorder(
+                        background == .custom
+                            ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06),
+                        lineWidth: 1)
             }
             .onTapGesture { background = .custom }
         }
@@ -217,7 +213,9 @@ private struct DisplayInspectorPanel: View {
                 VStack(spacing: 8) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(isDropTargeted ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
+                            .fill(
+                                isDropTargeted
+                                    ? Color.accentColor.opacity(0.08) : Color.primary.opacity(0.04))
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(
                                 isDropTargeted ? Color.accentColor : Color.primary.opacity(0.12),
@@ -236,7 +234,9 @@ private struct DisplayInspectorPanel: View {
                     .frame(maxWidth: .infinity)
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                     .onTapGesture { chooseImage() }
-                    .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+                    .onDrop(
+                        of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop
+                    )
                     .help("Click to choose image or drop file")
 
                     HStack(spacing: 8) {
@@ -263,13 +263,15 @@ private struct DisplayInspectorPanel: View {
 
     private var canPasteImage: Bool {
         NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
-            || NSPasteboard.general.canReadItem(withDataConformingToTypes: [UTType.image.identifier, UTType.fileURL.identifier, UTType.png.identifier])
+            || NSPasteboard.general.canReadItem(withDataConformingToTypes: [
+                UTType.image.identifier, UTType.fileURL.identifier, UTType.png.identifier,
+            ])
     }
 
     private func chooseImage() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
-            .png, .jpeg, .heic, .heif, .tiff, .bmp, .gif, .webP
+            .png, .jpeg, .heic, .heif, .tiff, .bmp, .gif, .webP,
         ]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -296,7 +298,7 @@ private struct DisplayInspectorPanel: View {
     private func pasteFromClipboard() {
         let pb = NSPasteboard.general
         if let images = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
-           let image = images.first
+            let image = images.first
         {
             displayFileName = "Pasted image"
             displayImage = image
@@ -304,7 +306,7 @@ private struct DisplayInspectorPanel: View {
             return
         }
         if let data = pb.data(forType: .tiff) ?? pb.data(forType: .png),
-           let image = NSImage(data: data)
+            let image = NSImage(data: data)
         {
             displayFileName = "Pasted image"
             displayImage = image
@@ -317,7 +319,8 @@ private struct DisplayInspectorPanel: View {
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) {
+                item, _ in
                 var url: URL?
                 if let data = item as? Data {
                     url = URL(dataRepresentation: data, relativeTo: nil)
@@ -382,7 +385,9 @@ private struct BackdropCircle: View {
                         Circle().strokeBorder(Color.accentColor, lineWidth: 2)
                         Image(systemName: "checkmark")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(color == .black ? Color.white.opacity(0.9) : Color.black.opacity(0.6))
+                            .foregroundStyle(
+                                color == .black
+                                    ? Color.white.opacity(0.9) : Color.black.opacity(0.6))
                     }
                 }
         }
