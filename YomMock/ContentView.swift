@@ -83,9 +83,9 @@ struct ContentView: View {
         }
         .task {
             if store.displayImage == nil,
-               let url = Bundle.main.url(forResource: "DefaultScreenshot", withExtension: "jpg"),
+               let url = Bundle.main.url(forResource: "iphone_home", withExtension: "jpg"),
                let img = NSImage(contentsOf: url) {
-                store.displayFileName = "2026-08-17 12.21.00.jpg"
+                store.displayFileName = "iphone_home.jpg"
                 store.displayImage = img
             }
             updateWindowTitle()
