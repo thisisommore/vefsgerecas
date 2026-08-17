@@ -12,7 +12,7 @@ nonisolated struct OrbitPose: Equatable, Sendable {
     var pitch: Float
     var radius: Float
 
-    static let `default` = OrbitPose(position: SIMD3<Float>(2.10, 0.63, 4.20))
+    static let `default` = OrbitPose(position: SIMD3<Float>(2.52, 0.756, 5.04))
 
     init(yaw: Float, pitch: Float, radius: Float) {
         self.yaw = yaw
