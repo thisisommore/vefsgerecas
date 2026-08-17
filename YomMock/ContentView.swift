@@ -609,7 +609,7 @@ struct ContentView: View {
 }
 
 final class PhoneScene {
-    static let fieldOfView: Float = 100
+    static let fieldOfView: Float = 60
     static let minZoom: Float = 0.06
     static let maxZoom: Float = 21
 
