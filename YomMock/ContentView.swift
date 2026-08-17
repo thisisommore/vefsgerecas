@@ -93,8 +93,11 @@ struct ContentView: View {
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
                 camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
-                camera.look(at: .zero, from: OrbitPose.default.position, relativeTo: nil)
+                let startPose = timeline.evaluatedState(at: 0).orbit
+                camera.look(at: .zero, from: startPose.position, relativeTo: nil)
                 scene.camera = camera
+                scene.orbitPose = startPose
+                scene.zoom = timeline.evaluatedState(at: 0).zoom
                 cameraReady = true
                 content.add(camera)
 
@@ -125,7 +128,13 @@ struct ContentView: View {
                     content.add(phone)
                     // Don't set cameraTarget — orbit controls use the target
                     // bounds to pick a tight starting distance.
-                    scene.apply(orbit: .default, zoom: zoom)
+                    let initial = timeline.evaluatedState(at: 0)
+                    scene.apply(orbit: initial.orbit, zoom: initial.zoom)
+                    Task { @MainActor in
+                        if zoom != initial.zoom {
+                            zoom = initial.zoom
+                        }
+                    }
                 } catch {
                     status = error.localizedDescription
                 }
@@ -249,6 +258,10 @@ struct ContentView: View {
     }
 
     private func holdStudioFramingIfNeeded() {
+        // Demo timeline has explicit checkpoints - show its start pose instead of holding studio default.
+        if timeline.checkpoints.count > 1 {
+            return
+        }
         scene.syncPoseFromCamera(zoom: zoom)
         if !userMovedCamera && !scene.hasUserInteracted {
             let live = scene.orbitPose
@@ -982,6 +995,9 @@ private struct TimelinePlaybackDriver: View {
                 if playing {
                     apply()
                 }
+            }
+            .onAppear {
+                apply()
             }
             .task(id: timeline.isPlaying) {
                 guard timeline.isPlaying else { return }
