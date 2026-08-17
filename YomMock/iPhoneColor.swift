@@ -108,15 +108,3 @@ struct PhoneFinish {
     }
 }
 
-private extension NSColor {
-    func blended(with other: NSColor, amount: CGFloat) -> NSColor {
-        let lhs = usingColorSpace(.deviceRGB) ?? self
-        let rhs = other.usingColorSpace(.deviceRGB) ?? other
-        return NSColor(
-            calibratedRed: lhs.redComponent + (rhs.redComponent - lhs.redComponent) * amount,
-            green: lhs.greenComponent + (rhs.greenComponent - lhs.greenComponent) * amount,
-            blue: lhs.blueComponent + (rhs.blueComponent - lhs.blueComponent) * amount,
-            alpha: 1
-        )
-    }
-}

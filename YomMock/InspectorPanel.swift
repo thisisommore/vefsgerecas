@@ -10,6 +10,8 @@ import SwiftUI
 struct InspectorPanel: View {
     @Binding var selectedColor: iPhoneColor
     @Binding var customColor: Color
+    @Binding var background: StudioBackground
+    @Binding var customBackground: Color
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -20,6 +22,13 @@ struct InspectorPanel: View {
                     PhoneInspectorPanel(
                         selectedColor: $selectedColor,
                         customColor: $customColor
+                    )
+
+                    Divider()
+
+                    BackdropInspectorPanel(
+                        background: $background,
+                        customBackground: $customBackground
                     )
                 }
                 .padding(16)
@@ -94,6 +103,117 @@ private struct PhoneInspectorPanel: View {
             .onTapGesture {
                 selectedColor = .custom
             }
+        }
+    }
+}
+
+private struct BackdropInspectorPanel: View {
+    @Binding var background: StudioBackground
+    @Binding var customBackground: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            inspectorHeader(title: "BACKDROP", subtitle: "Preview background")
+
+            Text("The color behind the phone in the preview. White is the default and stays white regardless of the device theme.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            sectionLabel("Presets")
+            HStack(spacing: 8) {
+                ForEach(StudioBackground.presets) { color in
+                    BackdropSwatch(
+                        color: color,
+                        isSelected: background == color
+                    ) {
+                        background = color
+                    }
+                }
+            }
+
+            sectionLabel("Custom")
+            HStack(spacing: 10) {
+                ColorPicker("Custom backdrop", selection: $customBackground, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 28, height: 28)
+                    .onChange(of: customBackground) { _, _ in
+                        background = .custom
+                    }
+                Text("Pick a color")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(10)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(background == .custom
+                          ? Color.accentColor.opacity(0.12)
+                          : Color.primary.opacity(0.04))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(background == .custom
+                                  ? Color.accentColor.opacity(0.8)
+                                  : Color.primary.opacity(0.06),
+                                  lineWidth: 1)
+            }
+            .onTapGesture {
+                background = .custom
+            }
+        }
+    }
+}
+
+private struct BackdropSwatch: View {
+    let color: StudioBackground
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(color.swatch)
+                    .frame(height: 40)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(.primary.opacity(0.2), lineWidth: 1)
+                    }
+                    .overlay {
+                        if isSelected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(checkmarkColor)
+                        }
+                    }
+
+                Text(color.name)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+            }
+            .padding(6)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.primary.opacity(0.04))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isSelected ? Color.accentColor : Color.primary.opacity(0.08),
+                                  lineWidth: isSelected ? 1.5 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .help(color.name)
+    }
+
+    private var checkmarkColor: Color {
+        switch color {
+        case .white: .black.opacity(0.6)
+        case .black: .white.opacity(0.9)
+        default: .black.opacity(0.6)
         }
     }
 }

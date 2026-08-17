@@ -13,6 +13,8 @@ struct ContentView: View {
     @State private var status: String?
     @State private var selectedColor: iPhoneColor = .black
     @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
+    @State private var background: StudioBackground = .white
+    @State private var customBackground = Color.white
     @State private var zoom: Float = 1
     @State private var cameraReady = false
     @State private var userMovedCamera = false
@@ -28,7 +30,9 @@ struct ContentView: View {
 
                 InspectorPanel(
                     selectedColor: $selectedColor,
-                    customColor: $customColor
+                    customColor: $customColor,
+                    background: $background,
+                    customBackground: $customBackground
                 )
                 .frame(width: 268)
             }
@@ -50,6 +54,8 @@ struct ContentView: View {
         .onChange(of: customColor) { _, _ in
             refreshMaterials()
         }
+        .onChange(of: background) { _, _ in }
+        .onChange(of: customBackground) { _, _ in }
         .onChange(of: zoom) { _, value in
             guard !timeline.isPlaying else { return }
             scene.zoom = value
@@ -59,7 +65,7 @@ struct ContentView: View {
 
     private var preview: some View {
         ZStack {
-            StudioBackdrop()
+            StudioBackdrop(background: background, customColor: customBackground)
             RealityView { content in
                 content.camera = .virtual
                 content.environment = .default
@@ -80,7 +86,9 @@ struct ContentView: View {
                     scene.phone = phone
                     frame(phone, targetSize: 0.05)
                     applyPhoneMaterials(
-                        to: phone, finish: selectedColor.finish(custom: customColor))
+                        to: phone,
+                        finish: selectedColor.finish(custom: customColor)
+                    )
                     applyGroundingShadows(to: phone)
 
                     let ibl = Entity()
@@ -501,18 +509,22 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
     }
 }
 
-/// Neutral studio backdrop behind the 3D scene. Reads like the bright
-/// cyclorama in light mode and a deep gray studio in dark mode.
+/// Configurable studio backdrop behind the 3D scene. Defaults to white,
+/// independent of the device appearance theme.
 private struct StudioBackdrop: View {
+    var background: StudioBackground
+    var customColor: Color
+
     var body: some View {
-        ZStack {
+        let colors = background.gradient(custom: customColor)
+        return ZStack {
             LinearGradient(
-                colors: [.studioTop, .studioBottom],
+                colors: [colors.top, colors.bottom],
                 startPoint: .top,
                 endPoint: .bottom
             )
             RadialGradient(
-                colors: [.studioGlow, .clear],
+                colors: [colors.top.opacity(0.4), .clear],
                 center: .center,
                 startRadius: 0,
                 endRadius: 560
