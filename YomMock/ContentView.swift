@@ -73,6 +73,14 @@ struct ContentView: View {
         .onChange(of: displayImage) { _, newImage in
             setDisplayScreenshot(newImage)
         }
+        .task {
+            if displayImage == nil,
+               let url = Bundle.main.url(forResource: "DefaultScreenshot", withExtension: "jpg"),
+               let img = NSImage(contentsOf: url) {
+                displayFileName = "2026-08-17 12.21.00.jpg"
+                displayImage = img
+            }
+        }
     }
 
     private var preview: some View {
