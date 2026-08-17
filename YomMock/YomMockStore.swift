@@ -22,7 +22,7 @@ final class YomMockStore {
     var background: StudioBackground = .white
     var customBackground = Color.white
     var zoom: Float = 1
-    var timeline: CameraTimeline = .demo
+    var timeline: CameraTimeline = CameraTimeline.demoFromDefaultFile()
     var displayImage: NSImage?
     var displayFileName: String?
 
@@ -185,7 +185,7 @@ final class YomMockStore {
         background = .white
         customBackground = Color.white
         zoom = 1
-        timeline = .demo
+        timeline = CameraTimeline.demoFromDefaultFile()
         displayImage = nil
         displayFileName = nil
         projectURL = nil

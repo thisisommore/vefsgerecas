@@ -76,18 +76,50 @@ final class CameraTimeline {
         self.checkpoints = [CameraCheckpoint(time: 0, pose: .default, zoom: 1)]
     }
 
-    /// Demo timeline — bottom → top → side orbit, smoothly eased.
-    /// Used as the default in the app; tests still use the single-checkpoint init.
+    /// Demo timeline — from ~/Documents/default.yommock (3 checkpoints with pan).
+    /// Used as the default for any new project; tests use single-checkpoint init.
     static var demo: CameraTimeline {
         let t = CameraTimeline(duration: defaultDuration)
         t.checkpoints = [
-            CameraCheckpoint(time: 0, pose: OrbitPose(yaw: 0.40, pitch: -0.48, radius: 4.2), zoom: 1.45),
-            CameraCheckpoint(time: 4, pose: OrbitPose(yaw: 0.55, pitch: 0.52, radius: 5.0), zoom: 1.08),
-            CameraCheckpoint(time: 8, pose: OrbitPose(yaw: 1.75, pitch: 0.18, radius: 4.6), zoom: 1.0),
-            CameraCheckpoint(time: 12, pose: OrbitPose(yaw: -0.55, pitch: 0.12, radius: 4.85), zoom: 0.98),
+            CameraCheckpoint(time: 0, pose: OrbitPose(yaw: 5.9604645e-08, pitch: 0.015000127, radius: 4.2), zoom: 1.45, pan: SIMD3<Float>(0.13746285, 2.1615605, -0.21351019)),
+            CameraCheckpoint(time: 3.9698507018008478, pose: OrbitPose(yaw: 0.5499067, pitch: 0.51991427, radius: 4.9998646), zoom: 1.0800627, pan: SIMD3<Float>(0.044968747, -0.3081803, 0.17958263)),
+            CameraCheckpoint(time: 8, pose: OrbitPose(yaw: 1.75, pitch: 0.18, radius: 4.6), zoom: 0.75971884, pan: .zero),
         ]
         t.selectedCheckpointID = t.checkpoints.first?.id
         return t
+    }
+
+    /// Loads the user's default template from ~/Documents/default.yommock if present.
+    static func demoFromDefaultFile() -> CameraTimeline {
+        let fm = FileManager.default
+        if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let url = docs.appendingPathComponent("default.yommock")
+            if fm.fileExists(atPath: url.path), let loaded = try? YomMockProject.load(from: url) {
+                let t = CameraTimeline(duration: loaded.document.timelineDuration)
+                t.checkpoints = loaded.document.checkpoints.map { pc in
+                    CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan)
+                }
+                if let sel = loaded.document.selectedCheckpointID, let uuid = UUID(uuidString: sel) {
+                    t.selectedCheckpointID = uuid
+                } else {
+                    t.selectedCheckpointID = t.checkpoints.first?.id
+                }
+                t.currentTime = loaded.document.timelineCurrentTime
+                return t
+            }
+        }
+        // Also try absolute path used during development
+        let alt = URL(fileURLWithPath: "/Users/ommore/Documents/default.yommock")
+        if fm.fileExists(atPath: alt.path), let loaded = try? YomMockProject.load(from: alt) {
+            let t = CameraTimeline(duration: loaded.document.timelineDuration)
+            t.checkpoints = loaded.document.checkpoints.map { pc in
+                CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan)
+            }
+            t.selectedCheckpointID = loaded.document.selectedCheckpointID.flatMap { UUID(uuidString: $0) } ?? t.checkpoints.first?.id
+            t.currentTime = loaded.document.timelineCurrentTime
+            return t
+        }
+        return .demo
     }
 
     var minDuration: TimeInterval {
