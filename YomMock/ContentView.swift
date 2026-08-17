@@ -19,7 +19,6 @@ struct ContentView: View {
     @State private var scene = PhoneScene()
     @State private var timeline = CameraTimeline()
     @State private var zoomAnimationTask: Task<Void, Never>?
-    @State private var inspectorTab: InspectorTab = .phone
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,12 +28,7 @@ struct ContentView: View {
 
                 InspectorPanel(
                     selectedColor: $selectedColor,
-                    customColor: $customColor,
-                    zoom: $zoom,
-                    selectedTab: $inspectorTab,
-                    cameraAvailable: cameraReady,
-                    timeline: timeline,
-                    onCapture: captureSelectedCheckpoint
+                    customColor: $customColor
                 )
                 .frame(width: 268)
             }
@@ -162,14 +156,6 @@ struct ContentView: View {
         )
     }
 
-    /// Capture the currently orbited/zoomed scene into the selected checkpoint.
-    private func captureSelectedCheckpoint() {
-        scene.syncPoseFromCamera(zoom: zoom)
-        timeline.updateSelectedCheckpoint(
-            pose: scene.captureOrbitPose(),
-            zoom: zoom
-        )
-    }
 
     private func applyEvaluatedPose() {
         let state = timeline.evaluatedState()
