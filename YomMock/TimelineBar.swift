@@ -176,7 +176,7 @@ struct TimelineBar: View {
 
     private var checkpointTrack: some View {
         TimelineCheckpointTrack(timeline: timeline)
-            .frame(height: 26)
+            .frame(height: 32)
     }
 }
 
@@ -197,6 +197,7 @@ private struct TimelineCheckpointTrack: View {
                     .gesture(seekGesture(width: width))
 
                 tickMarks(width: width)
+                timeLabels(width: width)
 
                 ForEach(timeline.checkpoints) { checkpoint in
                     TimelineDiamond()
@@ -244,7 +245,18 @@ private struct TimelineCheckpointTrack: View {
             Capsule()
                 .fill(.primary.opacity(0.14))
                 .frame(width: 1, height: mark.isMajor ? 8 : 5)
-                .position(x: mark.x, y: 20)
+                .position(x: mark.x, y: 16)
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func timeLabels(width: CGFloat) -> some View {
+        ForEach(secondMarks(width: width), id: \.self) { mark in
+            Text("\(mark.second)s")
+                .font(.system(size: 9, weight: .regular, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.45))
+                .monospacedDigit()
+                .position(x: mark.x, y: 26)
         }
         .allowsHitTesting(false)
     }
@@ -268,11 +280,12 @@ private struct TimelineCheckpointTrack: View {
     private func secondMarks(width: CGFloat) -> [TickMark] {
         let seconds = Int(timeline.duration.rounded(.down))
         guard seconds > 0, width > 0 else { return [] }
-        let step = seconds > 30 ? 5 : 1
+        let step = 2
         return stride(from: 0, through: seconds, by: step).map { second in
             TickMark(
                 x: x(for: TimeInterval(second), width: width),
-                isMajor: second % (step * 2 == 0 ? max(step, 2) : step) == 0
+                second: second,
+                isMajor: second % 4 == 0
             )
         }
     }
@@ -292,6 +305,7 @@ private struct TimelineDiamond: Shape {
 
 private struct TickMark: Hashable {
     var x: CGFloat
+    var second: Int
     var isMajor: Bool
 }
 
