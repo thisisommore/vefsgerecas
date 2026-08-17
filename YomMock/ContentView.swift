@@ -11,22 +11,16 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
+    @Bindable var store: YomMockStore
     @State private var status: String?
-    @State private var selectedColor: iPhoneColor = .black
-    @State private var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
-    @State private var background: StudioBackground = .white
-    @State private var customBackground = Color.white
-    @State private var zoom: Float = 1
     @State private var cameraReady = false
     @State private var userMovedCamera = false
     @State private var scene = PhoneScene()
-    @State private var timeline = CameraTimeline.demo
     @State private var zoomAnimationTask: Task<Void, Never>?
-    @State private var displayImage: NSImage?
     @State private var displayTexture: TextureResource?
-    @State private var displayFileName: String?
     @State private var displayStatus: String?
     @State private var displayLoadTask: Task<Void, Never>?
+    @EnvironmentObject private var unsavedGuard: UnsavedChangesGuard
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,12 +29,12 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 InspectorPanel(
-                    selectedColor: $selectedColor,
-                    customColor: $customColor,
-                    background: $background,
-                    customBackground: $customBackground,
-                    displayImage: $displayImage,
-                    displayFileName: $displayFileName,
+                    selectedColor: $store.selectedColor,
+                    customColor: $store.customColor,
+                    background: $store.background,
+                    customBackground: $store.customBackground,
+                    displayImage: $store.displayImage,
+                    displayFileName: $store.displayFileName,
                     displayStatus: $displayStatus
                 )
                 .frame(width: 210)
@@ -50,42 +44,78 @@ struct ContentView: View {
             Divider()
 
             TimelineBar(
-                timeline: timeline,
+                timeline: store.timeline,
                 cameraAvailable: cameraReady,
                 onSaveCheckpoint: saveCheckpoint
             )
             .frame(height: 148)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: selectedColor) { _, _ in
+        .onChange(of: store.selectedColor) { _, _ in
             refreshMaterials()
+            store.markDirty()
         }
-        .onChange(of: customColor) { _, _ in
+        .onChange(of: store.customColor) { _, _ in
             refreshMaterials()
+            store.markDirty()
         }
-        .onChange(of: background) { _, _ in }
-        .onChange(of: customBackground) { _, _ in }
-        .onChange(of: zoom) { _, value in
-            guard !timeline.isPlaying else { return }
+        .onChange(of: store.background) { _, _ in
+            store.markDirty()
+        }
+        .onChange(of: store.customBackground) { _, _ in
+            store.markDirty()
+        }
+        .onChange(of: store.zoom) { _, value in
+            guard !store.timeline.isPlaying else { return }
             scene.zoom = value
             scene.applyZoom()
+            store.markDirty()
         }
-        .onChange(of: displayImage) { _, newImage in
+        .onChange(of: store.displayImage) { _, newImage in
             setDisplayScreenshot(newImage)
+            store.markDirtyForImageChange()
+        }
+        .onChange(of: store.timeline.checkpoints) { _, _ in
+            store.markDirty()
+        }
+        .onChange(of: store.timeline.duration) { _, _ in
+            store.markDirty()
         }
         .task {
-            if displayImage == nil,
+            if store.displayImage == nil,
                let url = Bundle.main.url(forResource: "DefaultScreenshot", withExtension: "jpg"),
                let img = NSImage(contentsOf: url) {
-                displayFileName = "2026-08-17 12.21.00.jpg"
-                displayImage = img
+                store.displayFileName = "2026-08-17 12.21.00.jpg"
+                store.displayImage = img
+            }
+            updateWindowTitle()
+        }
+        .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
+        .onChange(of: store.projectURL) { _, _ in
+            updateWindowTitle()
+            applyEvaluatedPose()
+            refreshMaterials()
+        }
+        .onAppear { updateWindowTitle() }
+        .alert("Save Error", isPresented: Binding(get: { store.projectError != nil }, set: { if !$0 { store.handleSaveErrorDismiss() } })) {
+            Button("OK") { store.handleSaveErrorDismiss() }
+        } message: {
+            Text(store.projectError ?? "")
+        }
+    }
+
+    private func updateWindowTitle() {
+        DispatchQueue.main.async {
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                window.title = store.windowTitleWithStar
+                window.isDocumentEdited = store.isDirty
             }
         }
     }
 
     private var preview: some View {
         ZStack {
-            StudioBackdrop(background: background, customColor: customBackground)
+            StudioBackdrop(background: store.background, customColor: store.customBackground)
             RealityView { content in
                 content.camera = .virtual
                 content.environment = .default
@@ -93,11 +123,11 @@ struct ContentView: View {
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
                 camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
-                let startPose = timeline.evaluatedState(at: 0).orbit
+                let startPose = store.timeline.evaluatedState(at: 0).orbit
                 camera.look(at: .zero, from: startPose.position, relativeTo: nil)
                 scene.camera = camera
                 scene.orbitPose = startPose
-                scene.zoom = timeline.evaluatedState(at: 0).zoom
+                scene.zoom = store.timeline.evaluatedState(at: 0).zoom
                 cameraReady = true
                 content.add(camera)
 
@@ -110,7 +140,7 @@ struct ContentView: View {
                     frame(phone, targetSize: 0.05)
                     applyPhoneMaterials(
                         to: phone,
-                        finish: selectedColor.finish(custom: customColor)
+                        finish: store.selectedColor.finish(custom: store.customColor)
                     )
                     applyGroundingShadows(to: phone)
 
@@ -128,11 +158,11 @@ struct ContentView: View {
                     content.add(phone)
                     // Don't set cameraTarget — orbit controls use the target
                     // bounds to pick a tight starting distance.
-                    let initial = timeline.evaluatedState(at: 0)
+                    let initial = store.timeline.evaluatedState(at: 0)
                     scene.apply(orbit: initial.orbit, zoom: initial.zoom)
                     Task { @MainActor in
-                        if zoom != initial.zoom {
-                            zoom = initial.zoom
+                        if store.zoom != initial.zoom {
+                            store.zoom = initial.zoom
                         }
                     }
                 } catch {
@@ -140,27 +170,27 @@ struct ContentView: View {
                 }
             } update: { content in
                 bindCamera(from: content)
-                guard !timeline.isPlaying else { return }
+                guard !store.timeline.isPlaying else { return }
                 holdStudioFramingIfNeeded()
             }
             .realityViewCameraControls(.none)
             .background {
                 ZStack {
                     ScrollZoomCatcher { event in
-                        guard !timeline.isPlaying else { return }
+                        guard !store.timeline.isPlaying else { return }
                         userMovedCamera = true
                         scene.hasUserInteracted = true
-                        animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
+                        animateZoom(to: PhoneScene.adjustedZoom(from: store.zoom, event: event))
                     }
                     CameraPanCatcher(
                         onPan: { delta in
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.pan(by: delta)
                         },
                         onOrbit: { delta in
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.orbit(by: delta)
@@ -168,27 +198,27 @@ struct ContentView: View {
                     )
                     WASDZoomCatcher(
                         onZoomIn: {
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
-                            let target = min(zoom * Float(exp(0.08)), PhoneScene.maxZoom)
+                            let target = min(store.zoom * Float(exp(0.08)), PhoneScene.maxZoom)
                             animateZoom(to: target)
                         },
                         onZoomOut: {
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
-                            let target = max(zoom * Float(exp(-0.08)), PhoneScene.minZoom)
+                            let target = max(store.zoom * Float(exp(-0.08)), PhoneScene.minZoom)
                             animateZoom(to: target)
                         },
                         onRotateLeft: {
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.rotateYaw(by: -0.09)
                         },
                         onRotateRight: {
-                            guard !timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.rotateYaw(by: 0.09)
@@ -197,7 +227,7 @@ struct ContentView: View {
                 }
             }
 
-            TimelinePlaybackDriver(timeline: timeline, apply: applyEvaluatedPose)
+            TimelinePlaybackDriver(timeline: store.timeline, apply: applyEvaluatedPose)
 
             if let status {
                 Text(status)
@@ -224,7 +254,7 @@ struct ContentView: View {
     /// value, so rapid scrolling chases the target instead of jumping.
     private func animateZoom(to target: Float) {
         zoomAnimationTask?.cancel()
-        let start = zoom
+        let start = store.zoom
         let duration: TimeInterval = 0.7
         let startTime = CACurrentMediaTime()
         zoomAnimationTask = Task { @MainActor in
@@ -233,7 +263,7 @@ struct ContentView: View {
                 let t = min(Float(elapsed / duration), 1)
                 // Strong ease-out: quintic curve for a long, gentle settle.
                 let eased = 1 - pow(1 - t, 5)
-                zoom = start + (target - start) * eased
+                store.zoom = start + (target - start) * eased
                 if t >= 1 { break }
                 try? await Task.sleep(for: .milliseconds(8))
             }
@@ -241,28 +271,30 @@ struct ContentView: View {
     }
 
     private func saveCheckpoint() {
-        scene.syncPoseFromCamera(zoom: zoom)
-        timeline.saveCheckpoint(
-            at: timeline.currentTime,
+        scene.syncPoseFromCamera(zoom: store.zoom)
+        store.timeline.saveCheckpoint(
+            at: store.timeline.currentTime,
             pose: scene.captureOrbitPose(),
-            zoom: zoom
+            zoom: store.zoom
         )
+        store.markDirty()
+        updateWindowTitle()
     }
 
     private func applyEvaluatedPose() {
-        let state = timeline.evaluatedState()
+        let state = store.timeline.evaluatedState()
         scene.apply(orbit: state.orbit, zoom: state.zoom)
-        if zoom != state.zoom {
-            zoom = state.zoom
+        if store.zoom != state.zoom {
+            store.zoom = state.zoom
         }
     }
 
     private func holdStudioFramingIfNeeded() {
         // Demo timeline has explicit checkpoints - show its start pose instead of holding studio default.
-        if timeline.checkpoints.count > 1 {
+        if store.timeline.checkpoints.count > 1 {
             return
         }
-        scene.syncPoseFromCamera(zoom: zoom)
+        scene.syncPoseFromCamera(zoom: store.zoom)
         if !userMovedCamera && !scene.hasUserInteracted {
             let live = scene.orbitPose
             let studio = OrbitPose.default
@@ -275,16 +307,16 @@ struct ContentView: View {
                 userMovedCamera = true
                 scene.hasUserInteracted = true
             } else {
-                scene.apply(orbit: studio, zoom: zoom)
+                scene.apply(orbit: studio, zoom: store.zoom)
                 return
             }
         }
-        timeline.seedBasePoseIfDefault(scene.orbitPose)
+        store.timeline.seedBasePoseIfDefault(scene.orbitPose)
     }
 
     private func refreshMaterials() {
         guard let phone = scene.phone else { return }
-        applyPhoneMaterials(to: phone, finish: selectedColor.finish(custom: customColor))
+        applyPhoneMaterials(to: phone, finish: store.selectedColor.finish(custom: store.customColor))
     }
 
     private func setDisplayScreenshot(_ image: NSImage?) {
@@ -362,8 +394,8 @@ struct ContentView: View {
                 }
                 guard let url, let image = NSImage(contentsOf: url) else { return }
                 Task { @MainActor in
-                    displayFileName = url.lastPathComponent
-                    displayImage = image
+                    store.displayFileName = url.lastPathComponent
+                    store.displayImage = image
                 }
             }
             return true
@@ -372,8 +404,8 @@ struct ContentView: View {
             provider.loadObject(ofClass: NSImage.self) { object, _ in
                 guard let image = object as? NSImage else { return }
                 Task { @MainActor in
-                    displayFileName = "Pasted image"
-                    displayImage = image
+                    store.displayFileName = "Pasted image"
+                    store.displayImage = image
                 }
             }
             return true
@@ -405,7 +437,7 @@ struct ContentView: View {
         guard maxDim > 0 else { return }
         scene.baseScale = targetSize / maxDim
         scene.modelCenter = bounds.center
-        scene.zoom = zoom
+        scene.zoom = store.zoom
         scene.applyZoom()
     }
 
@@ -1014,5 +1046,5 @@ private struct TimelinePlaybackDriver: View {
 }
 
 #Preview {
-    ContentView()
+    ContentView(store: YomMockStore())
 }

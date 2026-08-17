@@ -45,7 +45,10 @@ struct CameraTimelineTests {
         #expect(first.id == updated.id)
         #expect(timeline.checkpoints.count == 2)
         #expect(abs(timeline.checkpoints[1].zoom - 4) < 0.000_1)
-        #expect(timeline.checkpointAtPlayhead == nil)  // playhead not at 2 yet
+        #expect(timeline.checkpointAtPlayhead != nil)  // playhead at 0 has default checkpoint
+        #expect(timeline.checkpointAtPlayhead?.time == 0)
+        timeline.seek(to: 1)
+        #expect(timeline.checkpointAtPlayhead == nil)  // no checkpoint at 1
     }
 
     @Test @MainActor func saveClampsIntoDuration() {
@@ -112,12 +115,25 @@ struct CameraTimelineTests {
         timeline.saveCheckpoint(at: 6, pose: late, zoom: 4)
 
         let before = timeline.evaluatedState(at: 0)
-        #expect(before.orbit.yaw == early.yaw)
-        #expect(abs(before.zoom - 2) < 0.000_1)
+        // With default checkpoint at 0, before holds default, not early
+        #expect(before.orbit == .default)
+        #expect(abs(before.zoom - 1) < 0.000_1)
+
+        let between = timeline.evaluatedState(at: 1)
+        // Between default (0) and early (2) interpolates, not exactly early
+        #expect(between.orbit.yaw != early.yaw)
 
         let after = timeline.evaluatedState(at: 12)
         #expect(after.orbit.yaw == late.yaw)
         #expect(abs(after.zoom - 4) < 0.000_1)
+
+        // Also verify that with only early/late (no default), before holds early
+        let clean = CameraTimeline()
+        clean.checkpoints = []
+        clean.saveCheckpoint(at: 2, pose: early, zoom: 2)
+        clean.saveCheckpoint(at: 6, pose: late, zoom: 4)
+        let cleanBefore = clean.evaluatedState(at: 0)
+        #expect(cleanBefore.orbit.yaw == early.yaw)
     }
 
     @Test @MainActor func updateSelectedCheckpointEditsOnlyThatKey() {

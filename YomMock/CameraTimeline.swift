@@ -67,7 +67,7 @@ final class CameraTimeline {
     var duration: TimeInterval
     var currentTime: TimeInterval = 0
     var isPlaying = false
-    private(set) var checkpoints: [CameraCheckpoint]
+    var checkpoints: [CameraCheckpoint]
     var selectedCheckpointID: UUID?
 
     init(duration: TimeInterval = CameraTimeline.defaultDuration) {

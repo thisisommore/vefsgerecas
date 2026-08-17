@@ -1,0 +1,266 @@
+//
+//  YomMockProject.swift
+//  YomMock
+//
+//  On-disk project package (`.yommock`) that keeps timeline + appearance
+//  settings so a mock can be reopened later with everything restored.
+//
+
+import AppKit
+import Foundation
+import UniformTypeIdentifiers
+import SwiftUI
+
+extension UTType {
+    static var yomMockProject: UTType {
+        UTType(exportedAs: "app.yommock.project")
+    }
+}
+
+/// Simple RGBA for Codable Color persistence.
+struct ProjectColor: Codable, Equatable {
+    var r: Double
+    var g: Double
+    var b: Double
+    var a: Double
+
+    init(r: Double, g: Double, b: Double, a: Double) {
+        self.r = r; self.g = g; self.b = b; self.a = a
+    }
+
+    init(color: Color) {
+        let ns = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.gray
+        self.r = Double(ns.redComponent)
+        self.g = Double(ns.greenComponent)
+        self.b = Double(ns.blueComponent)
+        self.a = Double(ns.alphaComponent)
+    }
+
+    init(nsColor: NSColor) {
+        let c = nsColor.usingColorSpace(.deviceRGB) ?? nsColor
+        self.r = Double(c.redComponent)
+        self.g = Double(c.greenComponent)
+        self.b = Double(c.blueComponent)
+        self.a = Double(c.alphaComponent)
+    }
+
+    var color: Color {
+        Color(nsColor: NSColor(calibratedRed: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a)))
+    }
+
+    var nsColor: NSColor {
+        NSColor(calibratedRed: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a))
+    }
+}
+
+/// One checkpoint persisted to disk.
+struct ProjectCheckpoint: Codable, Equatable {
+    var id: String // UUID string
+    var time: Double
+    var yaw: Float
+    var pitch: Float
+    var radius: Float
+    var zoom: Float
+
+    init(id: UUID = UUID(), time: Double, yaw: Float, pitch: Float, radius: Float, zoom: Float) {
+        self.id = id.uuidString
+        self.time = time
+        self.yaw = yaw
+        self.pitch = pitch
+        self.radius = radius
+        self.zoom = zoom
+    }
+
+    var uuid: UUID { UUID(uuidString: id) ?? UUID() }
+}
+
+/// Serializable edit document stored as `project.json` inside a `.yommock` package.
+struct YomMockProjectDocument: Codable, Equatable {
+    var version: Int
+    var selectedColorRaw: String // iPhoneColor name
+    var customColor: ProjectColor?
+    var backgroundRaw: String // StudioBackground name
+    var customBackground: ProjectColor?
+    var zoom: Float
+    var timelineDuration: Double
+    var timelineCurrentTime: Double
+    var checkpoints: [ProjectCheckpoint]
+    var selectedCheckpointID: String?
+    var displayRelativePath: String? // e.g. "assets/display.png"
+    var displayFileName: String?
+
+    static let currentVersion = 1
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.version == rhs.version
+            && lhs.selectedColorRaw == rhs.selectedColorRaw
+            && lhs.customColor == rhs.customColor
+            && lhs.backgroundRaw == rhs.backgroundRaw
+            && lhs.customBackground == rhs.customBackground
+            && lhs.zoom == rhs.zoom
+            && lhs.timelineDuration == rhs.timelineDuration
+            && lhs.timelineCurrentTime == rhs.timelineCurrentTime
+            && lhs.checkpoints == rhs.checkpoints
+            && lhs.selectedCheckpointID == rhs.selectedCheckpointID
+            && lhs.displayRelativePath == rhs.displayRelativePath
+            && lhs.displayFileName == rhs.displayFileName
+    }
+}
+
+enum YomMockProject {
+    static let pathExtension = "yommock"
+    static let documentFileName = "project.json"
+    static let assetsDirectoryName = "assets"
+    static let displayFileName = "display.png"
+
+    struct Loaded {
+        let projectURL: URL
+        let document: YomMockProjectDocument
+        let displayImage: NSImage?
+    }
+
+    static func documentURL(in projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(documentFileName)
+    }
+
+    static func assetsDirectory(in projectURL: URL) -> URL {
+        projectURL.appendingPathComponent(assetsDirectoryName, isDirectory: true)
+    }
+
+    static func displayURL(in projectURL: URL) -> URL {
+        assetsDirectory(in: projectURL).appendingPathComponent(displayFileName)
+    }
+
+    static func load(from projectURL: URL) throws -> Loaded {
+        let docURL = documentURL(in: projectURL)
+        let data = try Data(contentsOf: docURL)
+        let document = try JSONDecoder().decode(YomMockProjectDocument.self, from: data)
+
+        var image: NSImage?
+        if let rel = document.displayRelativePath {
+            let url = projectURL.appendingPathComponent(rel)
+            if FileManager.default.fileExists(atPath: url.path) {
+                image = NSImage(contentsOf: url)
+            }
+        } else {
+            // fallback to legacy location assets/display.png
+            let fallback = displayURL(in: projectURL)
+            if FileManager.default.fileExists(atPath: fallback.path) {
+                image = NSImage(contentsOf: fallback)
+            }
+        }
+        return Loaded(projectURL: projectURL, document: document, displayImage: image)
+    }
+
+    /// Writes a self-contained project package at `projectURL`.
+    @discardableResult
+    static func save(
+        to projectURL: URL,
+        document: YomMockProjectDocument,
+        displayImage: NSImage?
+    ) throws -> YomMockProjectDocument {
+        let fm = FileManager.default
+        let tempURL = fm.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(pathExtension)
+
+        let assetsDir = assetsDirectory(in: tempURL)
+        try fm.createDirectory(at: assetsDir, withIntermediateDirectories: true)
+
+        do {
+            var saved = document
+            saved.version = YomMockProjectDocument.currentVersion
+
+            if let displayImage {
+                let dest = assetsDir.appendingPathComponent(displayFileName)
+                if let tiff = displayImage.tiffRepresentation,
+                   let rep = NSBitmapImageRep(data: tiff),
+                   let png = rep.representation(using: .png, properties: [:]) {
+                    try png.write(to: dest)
+                    saved.displayRelativePath = "\(assetsDirectoryName)/\(displayFileName)"
+                } else {
+                    saved.displayRelativePath = nil
+                }
+            } else {
+                saved.displayRelativePath = nil
+            }
+
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(saved)
+            try data.write(to: documentURL(in: tempURL))
+
+            if fm.fileExists(atPath: projectURL.path) {
+                try fm.removeItem(at: projectURL)
+            }
+            try fm.moveItem(at: tempURL, to: projectURL)
+
+            return saved
+        } catch {
+            try? fm.removeItem(at: tempURL)
+            throw error
+        }
+    }
+}
+
+enum YomMockProjectError: LocalizedError {
+    case missingDocument
+    case saveFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingDocument: "This project is missing its document."
+        case let .saveFailed(message): message
+        }
+    }
+}
+
+// MARK: - Helpers to map enums to raw strings
+
+extension iPhoneColor {
+    var rawValueForProject: String {
+        switch self {
+        case .lavender: "lavender"
+        case .sage: "sage"
+        case .mistBlue: "mistBlue"
+        case .white: "white"
+        case .black: "black"
+        case .custom: "custom"
+        }
+    }
+
+    static func from(projectRaw: String) -> iPhoneColor {
+        switch projectRaw {
+        case "lavender": return .lavender
+        case "sage": return .sage
+        case "mistBlue": return .mistBlue
+        case "white": return .white
+        case "black": return .black
+        default: return .custom
+        }
+    }
+}
+
+extension StudioBackground {
+    var rawValueForProject: String {
+        switch self {
+        case .white: "white"
+        case .black: "black"
+        case .lightGray: "lightGray"
+        case .cream: "cream"
+        case .slate: "slate"
+        case .custom: "custom"
+        }
+    }
+
+    static func from(projectRaw: String) -> StudioBackground {
+        switch projectRaw {
+        case "white": return .white
+        case "black": return .black
+        case "lightGray": return .lightGray
+        case "cream": return .cream
+        case "slate": return .slate
+        default: return .custom
+        }
+    }
+}
