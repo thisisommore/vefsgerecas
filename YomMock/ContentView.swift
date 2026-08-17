@@ -127,12 +127,13 @@ struct ContentView: View {
                 guard !timeline.isPlaying else { return }
                 holdStudioFramingIfNeeded()
             }
-            .realityViewCameraControls(timeline.isPlaying ? .none : .orbit)
+            .realityViewCameraControls(.none)
             .background {
                 ZStack {
                     ScrollZoomCatcher { event in
                         guard !timeline.isPlaying else { return }
                         userMovedCamera = true
+                        scene.hasUserInteracted = true
                         animateZoom(to: PhoneScene.adjustedZoom(from: zoom, event: event))
                     }
                     CameraPanCatcher(
@@ -140,7 +141,42 @@ struct ContentView: View {
                         onPan: { delta in
                             guard !timeline.isPlaying else { return }
                             userMovedCamera = true
+                            scene.hasUserInteracted = true
                             scene.pan(by: delta)
+                        },
+                        onOrbit: { delta in
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.hasUserInteracted = true
+                            scene.orbit(by: delta)
+                        }
+                    )
+                    WASDZoomCatcher(
+                        onZoomIn: {
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.hasUserInteracted = true
+                            let target = min(zoom * Float(exp(0.08)), PhoneScene.maxZoom)
+                            animateZoom(to: target)
+                        },
+                        onZoomOut: {
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.hasUserInteracted = true
+                            let target = max(zoom * Float(exp(-0.08)), PhoneScene.minZoom)
+                            animateZoom(to: target)
+                        },
+                        onRotateLeft: {
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.hasUserInteracted = true
+                            scene.rotateYaw(by: -0.09)
+                        },
+                        onRotateRight: {
+                            guard !timeline.isPlaying else { return }
+                            userMovedCamera = true
+                            scene.hasUserInteracted = true
+                            scene.rotateYaw(by: 0.09)
                         }
                     )
                 }
@@ -208,7 +244,7 @@ struct ContentView: View {
 
     private func holdStudioFramingIfNeeded() {
         scene.syncPoseFromCamera(zoom: zoom)
-        if !userMovedCamera {
+        if !userMovedCamera && !scene.hasUserInteracted {
             let live = scene.orbitPose
             let studio = OrbitPose.default
             var yawDelta = live.yaw - studio.yaw
@@ -218,6 +254,7 @@ struct ContentView: View {
             // change as the user taking over; otherwise keep the studio shot.
             if abs(yawDelta) > 0.08 || abs(live.pitch - studio.pitch) > 0.08 {
                 userMovedCamera = true
+                scene.hasUserInteracted = true
             } else {
                 scene.apply(orbit: studio, zoom: zoom)
                 return
@@ -579,6 +616,7 @@ final class PhoneScene {
     var modelCenter = SIMD3<Float>.zero
     var target = SIMD3<Float>.zero
     var panOffset = SIMD3<Float>.zero
+    var hasUserInteracted = false
 
     func apply(orbit: OrbitPose, zoom: Float) {
         orbitPose = orbit
@@ -594,6 +632,27 @@ final class PhoneScene {
         guard simd_length(orbitPos) > 1e-4 else { return }
         orbitPose = OrbitPose(position: orbitPos)
         self.zoom = zoom
+    }
+
+    func rotateYaw(by delta: Float) {
+        syncPoseFromCamera(zoom: zoom)
+        hasUserInteracted = true
+        let newYaw = orbitPose.yaw + delta
+        orbitPose = OrbitPose(yaw: newYaw, pitch: orbitPose.pitch, radius: orbitPose.radius)
+        applyCamera(from: orbitPose.position)
+    }
+
+    func orbit(by delta: SIMD2<Float>) {
+        // No sync — we are the source of truth now (custom orbit).
+        hasUserInteracted = true
+        let yawDelta = -delta.x * 0.005
+        let pitchDelta = -delta.y * 0.005
+        orbitPose = OrbitPose(
+            yaw: orbitPose.yaw + yawDelta,
+            pitch: orbitPose.pitch + pitchDelta,
+            radius: orbitPose.radius
+        )
+        applyCamera(from: orbitPose.position)
     }
 
     /// Pan by moving the phone in the camera's right/up plane.
@@ -647,7 +706,25 @@ final class PhoneScene {
             perspective.fieldOfViewInDegrees = Self.fieldOfView
             camera.components.set(perspective)
         }
-        camera.look(at: target, from: target + position, relativeTo: nil)
+        // Keep a stable up when near the pole to avoid 180° roll.
+        // At pitch ~±80° the forward is near world-up, so bias up toward -Z.
+        let pitch = orbitPose.pitch
+        if abs(pitch) > 1.30 {
+            // Build look with explicit up to avoid auto-up singularity.
+            let eye = target + position
+            let forward = normalize(target - eye)
+            let worldUp: SIMD3<Float> = abs(pitch) < .pi/2 - 0.05 ? [0,1,0] : [0,0,-1]
+            let right = normalize(cross(forward, worldUp))
+            let up = cross(right, forward)
+            var m = matrix_identity_float4x4
+            m.columns.0 = SIMD4<Float>(right.x, right.y, right.z, 0)
+            m.columns.1 = SIMD4<Float>(up.x, up.y, up.z, 0)
+            m.columns.2 = SIMD4<Float>(-forward.x, -forward.y, -forward.z, 0)
+            m.columns.3 = SIMD4<Float>(eye.x, eye.y, eye.z, 1)
+            camera.setTransformMatrix(m, relativeTo: nil)
+        } else {
+            camera.look(at: target, from: target + position, relativeTo: nil)
+        }
     }
 
     func applyZoom() {
@@ -712,28 +789,32 @@ private struct ScrollZoomCatcher: NSViewRepresentable {
     }
 }
 
-/// Shift + drag pans the camera (track) instead of orbiting. Monitors
-/// flagsChanged to toggle orbit off, and leftMouseDragged with shift to
-/// consume the event and drive PhoneScene.target.
+/// Shift + drag pans (track) and drag without shift orbits.
+/// Now owns all orbit + pan so PhoneScene is single source of truth
+/// (no more RealityKit .orbit fighting manual a/d).
 private struct CameraPanCatcher: NSViewRepresentable {
     var onShiftChanged: (Bool) -> Void
     var onPan: (SIMD2<Float>) -> Void
+    var onOrbit: (SIMD2<Float>) -> Void
 
     func makeNSView(context: Context) -> PanMonitorView {
         let view = PanMonitorView()
         view.onShiftChanged = onShiftChanged
         view.onPan = onPan
+        view.onOrbit = onOrbit
         return view
     }
 
     func updateNSView(_ view: PanMonitorView, context: Context) {
         view.onShiftChanged = onShiftChanged
         view.onPan = onPan
+        view.onOrbit = onOrbit
     }
 
     final class PanMonitorView: NSView {
         var onShiftChanged: ((Bool) -> Void)?
         var onPan: ((SIMD2<Float>) -> Void)?
+        var onOrbit: ((SIMD2<Float>) -> Void)?
         private var flagsMonitor: Any?
         private var dragMonitor: Any?
         private var isShiftHeld = false
@@ -765,7 +846,7 @@ private struct CameraPanCatcher: NSViewRepresentable {
                 let location = self.convert(event.locationInWindow, from: nil)
                 switch event.type {
                 case .leftMouseDown:
-                    isDraggingInside = bounds.contains(location) && event.modifierFlags.contains(.shift)
+                    isDraggingInside = bounds.contains(location)
                     return event
                 case .leftMouseUp:
                     isDraggingInside = false
@@ -776,13 +857,15 @@ private struct CameraPanCatcher: NSViewRepresentable {
                         isShiftHeld = shift
                         onShiftChanged?(shift)
                     }
-                    // Continue pan if drag started inside with shift, even if now outside
+                    let dx = Float(event.deltaX)
+                    let dy = Float(event.deltaY)
                     if (isDraggingInside || bounds.contains(location)) && shift {
-                        // deltaX/deltaY are in points since last drag event
-                        let dx = Float(event.deltaX)
-                        let dy = Float(event.deltaY)
                         onPan?(SIMD2<Float>(dx, dy))
-                        return nil // consume — prevents orbit
+                        return nil
+                    } else if isDraggingInside || bounds.contains(location) {
+                        // Normal drag → orbit
+                        onOrbit?(SIMD2<Float>(dx, dy))
+                        return nil
                     }
                     return event
                 default:
@@ -794,6 +877,74 @@ private struct CameraPanCatcher: NSViewRepresentable {
         private func removeMonitors() {
             if let m = flagsMonitor { NSEvent.removeMonitor(m); flagsMonitor = nil }
             if let m = dragMonitor { NSEvent.removeMonitor(m); dragMonitor = nil }
+        }
+    }
+}
+
+/// W/S dolly zoom + A/D yaw orbit — keyboard camera controls.
+private struct WASDZoomCatcher: NSViewRepresentable {
+    var onZoomIn: () -> Void
+    var onZoomOut: () -> Void
+    var onRotateLeft: () -> Void
+    var onRotateRight: () -> Void
+
+    func makeNSView(context: Context) -> KeyMonitorView {
+        let view = KeyMonitorView()
+        view.onZoomIn = onZoomIn
+        view.onZoomOut = onZoomOut
+        view.onRotateLeft = onRotateLeft
+        view.onRotateRight = onRotateRight
+        return view
+    }
+
+    func updateNSView(_ view: KeyMonitorView, context: Context) {
+        view.onZoomIn = onZoomIn
+        view.onZoomOut = onZoomOut
+        view.onRotateLeft = onRotateLeft
+        view.onRotateRight = onRotateRight
+    }
+
+    final class KeyMonitorView: NSView {
+        var onZoomIn: (() -> Void)?
+        var onZoomOut: (() -> Void)?
+        var onRotateLeft: (() -> Void)?
+        var onRotateRight: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            installMonitor()
+        }
+
+        deinit { removeMonitor() }
+
+        private func installMonitor() {
+            removeMonitor()
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let window = self.window, event.window === window else { return event }
+                // Don't steal typing in text fields
+                if let fr = window.firstResponder as? NSText, fr is NSTextView { return event }
+                guard let chars = event.charactersIgnoringModifiers?.lowercased() else { return event }
+                if chars == "w" {
+                    self.onZoomIn?()
+                    return nil
+                } else if chars == "s" {
+                    self.onZoomOut?()
+                    return nil
+                } else if chars == "a" {
+                    self.onRotateLeft?()
+                    return nil
+                } else if chars == "d" {
+                    self.onRotateRight?()
+                    return nil
+                }
+                return event
+            }
+        }
+
+        private func removeMonitor() {
+            if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
         }
     }
 }

@@ -16,7 +16,7 @@ nonisolated struct OrbitPose: Equatable, Sendable {
 
     init(yaw: Float, pitch: Float, radius: Float) {
         self.yaw = yaw
-        self.pitch = simd_clamp(pitch, -.pi / 2 + 0.02, .pi / 2 - 0.02)
+        self.pitch = simd_clamp(pitch, -.pi / 2 + 0.18, .pi / 2 - 0.18)
         self.radius = max(radius, 0.000_1)
     }
 
@@ -231,7 +231,7 @@ nonisolated struct Spherical: Equatable {
     init(radius: Float, yaw: Float, pitch: Float) {
         self.radius = max(radius, 0.000_1)
         self.yaw = yaw
-        self.pitch = simd_clamp(pitch, -.pi / 2 + 0.01, .pi / 2 - 0.01)
+        self.pitch = simd_clamp(pitch, -.pi / 2 + 0.18, .pi / 2 - 0.18)
     }
 
     init(_ position: SIMD3<Float>) {
