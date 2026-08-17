@@ -75,6 +75,20 @@ final class CameraTimeline {
         self.checkpoints = [CameraCheckpoint(time: 0, pose: .default, zoom: 1)]
     }
 
+    /// Demo timeline — bottom → top → side orbit, smoothly eased.
+    /// Used as the default in the app; tests still use the single-checkpoint init.
+    static var demo: CameraTimeline {
+        let t = CameraTimeline(duration: defaultDuration)
+        t.checkpoints = [
+            CameraCheckpoint(time: 0, pose: OrbitPose(yaw: 0.40, pitch: -0.48, radius: 4.2), zoom: 1.45),
+            CameraCheckpoint(time: 4, pose: OrbitPose(yaw: 0.55, pitch: 0.52, radius: 5.0), zoom: 1.08),
+            CameraCheckpoint(time: 8, pose: OrbitPose(yaw: 1.75, pitch: 0.18, radius: 4.6), zoom: 1.0),
+            CameraCheckpoint(time: 12, pose: OrbitPose(yaw: -0.55, pitch: 0.12, radius: 4.85), zoom: 0.98),
+        ]
+        t.selectedCheckpointID = t.checkpoints.first?.id
+        return t
+    }
+
     var minDuration: TimeInterval {
         max(1, checkpoints.map(\.time).max() ?? 0)
     }

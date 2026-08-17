@@ -20,7 +20,7 @@ struct ContentView: View {
     @State private var cameraReady = false
     @State private var userMovedCamera = false
     @State private var scene = PhoneScene()
-    @State private var timeline = CameraTimeline()
+    @State private var timeline = CameraTimeline.demo
     @State private var zoomAnimationTask: Task<Void, Never>?
     @State private var displayImage: NSImage?
     @State private var displayTexture: TextureResource?
