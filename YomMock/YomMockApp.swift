@@ -85,7 +85,7 @@ private struct YomMockWindowRoot: View {
             .focusedSceneValue(\.yomMockStore, store)
             .onAppear {
                 unsavedGuard.onDiscard = { [weak store] in
-                    store?.newProject()
+                    store?.markClean()
                 }
                 YomMockRegistry.shared.register(store: store, guardObj: unsavedGuard)
                 // Sync guard dirty with store
