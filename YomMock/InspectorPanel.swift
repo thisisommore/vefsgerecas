@@ -183,6 +183,9 @@ private struct DisplayInspectorPanel: View {
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                     }
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .onTapGesture { chooseImage() }
+                    .help("Click to change screenshot")
 
                     HStack(spacing: 6) {
                         Image(systemName: "photo")
@@ -196,8 +199,6 @@ private struct DisplayInspectorPanel: View {
                     }
 
                     HStack(spacing: 6) {
-                        Button("Choose…", action: chooseImage)
-                            .buttonStyle(TimelineTextButtonStyle())
                         Button("Remove", role: .destructive, action: removeImage)
                             .buttonStyle(TimelineTextButtonStyle())
                         Spacer()
@@ -233,17 +234,12 @@ private struct DisplayInspectorPanel: View {
                         .padding(.vertical, 12)
                     }
                     .frame(maxWidth: .infinity)
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .onTapGesture { chooseImage() }
                     .onDrop(of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop)
+                    .help("Click to choose image or drop file")
 
                     HStack(spacing: 8) {
-                        Button {
-                            chooseImage()
-                        } label: {
-                            Label("Choose Image…", systemImage: "photo.badge.plus")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .buttonStyle(TimelineTextButtonStyle())
-
                         Button(action: pasteFromClipboard) {
                             Label("Paste", systemImage: "doc.on.clipboard")
                                 .font(.system(size: 12, weight: .semibold))
