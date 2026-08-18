@@ -104,6 +104,7 @@ struct ContentView: View {
         } message: {
             Text(store.projectError ?? "")
         }
+        .overlay(alignment: .bottom) { exportSuccessOverlay }
     }
 
     private func updateWindowTitle() {
@@ -112,6 +113,16 @@ struct ContentView: View {
                 window.title = store.windowTitleWithStar
                 window.isDocumentEdited = store.isDirty
             }
+        }
+    }
+
+    @ViewBuilder
+    private var exportSuccessOverlay: some View {
+        if store.showExportSuccess {
+            ExportSuccessToast(store: store)
+                .padding(.bottom, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.showExportSuccess)
         }
     }
 
@@ -1076,6 +1087,71 @@ private struct TimelinePlaybackDriver: View {
                     try? await Task.sleep(for: .milliseconds(8))
                 }
             }
+    }
+}
+
+private struct ExportSuccessToast: View {
+    @Bindable var store: YomMockStore
+
+    var body: some View {
+        let fileName = store.lastExportedFrameURL?.lastPathComponent ?? "Frame.png"
+        let folderName = store.lastExportedFrameURL?.deletingLastPathComponent().lastPathComponent ?? ""
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.08))
+                    .frame(width: 32, height: 32)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Frame exported")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(fileName)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if !folderName.isEmpty {
+                    Text(folderName)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 8) {
+                Button {
+                    store.showExportedFrameInFinder()
+                } label: {
+                    Label("Show in Finder", systemImage: "folder")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.accentColor)
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        store.dismissExportSuccess()
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22, height: 22)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 420)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 8)
     }
 }
 

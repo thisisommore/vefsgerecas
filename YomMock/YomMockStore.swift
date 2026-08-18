@@ -33,6 +33,9 @@ final class YomMockStore {
     private var lastSavedSnapshot: YomMockProjectDocument?
     private var isRestoring = false
     var projectError: String?
+    var lastExportedFrameURL: URL?
+    var showExportSuccess = false
+    @ObservationIgnored private var exportSuccessTask: Task<Void, Never>?
 
     /// Set by ContentView; returns the NSView hosting the 3D preview so
     /// "Export Current Frame" can capture exactly that region.
@@ -302,8 +305,32 @@ final class YomMockStore {
         }
         do {
             try data.write(to: finalURL, options: .atomic)
+            lastExportedFrameURL = finalURL
+            showExportSuccess = true
+            scheduleExportSuccessAutoDismiss()
         } catch {
             projectError = error.localizedDescription
+        }
+    }
+
+    func showExportedFrameInFinder() {
+        guard let url = lastExportedFrameURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func dismissExportSuccess() {
+        exportSuccessTask?.cancel()
+        exportSuccessTask = nil
+        showExportSuccess = false
+    }
+
+    private func scheduleExportSuccessAutoDismiss() {
+        exportSuccessTask?.cancel()
+        exportSuccessTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4.5))
+            guard !Task.isCancelled else { return }
+            showExportSuccess = false
+            exportSuccessTask = nil
         }
     }
 
