@@ -34,6 +34,10 @@ final class YomMockStore {
     private var isRestoring = false
     var projectError: String?
 
+    /// Set by ContentView; returns the NSView hosting the 3D preview so
+    /// "Export Current Frame" can capture exactly that region.
+    @ObservationIgnored var frameCaptureViewProvider: (() -> NSView?)?
+
     var windowTitle: String {
         let base: String
         if let url = projectURL {
@@ -254,6 +258,52 @@ final class YomMockStore {
         } catch {
             projectError = error.localizedDescription
             // Present error via alert? Store will show in UI if needed.
+        }
+    }
+
+    // MARK: - Frame export
+
+    /// Captures the current preview frame and saves it as a PNG.
+    func exportCurrentFrame() {
+        guard let view = frameCaptureViewProvider?(), let window = view.window else {
+            projectError = "There is no preview frame to export yet."
+            return
+        }
+        let rectInWindow = view.convert(view.bounds, to: nil)
+        Task { @MainActor in
+            do {
+                let image = try await FrameCapture.capture(window: window)
+                guard let frame = FrameCapture.crop(image, toViewRect: rectInWindow, window: window) else {
+                    projectError = FrameCapture.CaptureError.cropFailed.localizedDescription
+                    return
+                }
+                presentFrameSavePanel(for: frame)
+            } catch {
+                projectError = error.localizedDescription
+            }
+        }
+    }
+
+    private func presentFrameSavePanel(for image: CGImage) {
+        let panel = NSSavePanel()
+        panel.title = "Export Current Frame"
+        panel.message = "Save a screenshot of the current frame as a PNG image."
+        let base = projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        panel.nameFieldStringValue = "\(base) Frame.png"
+        panel.allowedContentTypes = [.png]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let finalURL = url.pathExtension.lowercased() == "png" ? url : url.appendingPathExtension("png")
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let data = rep.representation(using: .png, properties: [:]) else {
+            projectError = "Could not encode the frame as PNG."
+            return
+        }
+        do {
+            try data.write(to: finalURL, options: .atomic)
+        } catch {
+            projectError = error.localizedDescription
         }
     }
 

@@ -15,6 +15,7 @@ struct ContentView: View {
     @State private var status: String?
     @State private var cameraReady = false
     @State private var userMovedCamera = false
+    @State private var previewViewBox = PreviewViewBox()
     @State private var scene = PhoneScene()
     @State private var zoomAnimationTask: Task<Void, Never>?
     @State private var displayTexture: TextureResource?
@@ -88,6 +89,7 @@ struct ContentView: View {
                 store.displayFileName = "iphone_home.jpg"
                 store.displayImage = img
             }
+            store.frameCaptureViewProvider = { [previewViewBox] in previewViewBox.view }
             updateWindowTitle()
         }
         .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
@@ -97,7 +99,7 @@ struct ContentView: View {
             refreshMaterials()
         }
         .onAppear { updateWindowTitle() }
-        .alert("Save Error", isPresented: Binding(get: { store.projectError != nil }, set: { if !$0 { store.handleSaveErrorDismiss() } })) {
+        .alert("Error", isPresented: Binding(get: { store.projectError != nil }, set: { if !$0 { store.handleSaveErrorDismiss() } })) {
             Button("OK") { store.handleSaveErrorDismiss() }
         } message: {
             Text(store.projectError ?? "")
@@ -116,6 +118,9 @@ struct ContentView: View {
     private var preview: some View {
         ZStack {
             StudioBackdrop(background: store.background, customColor: store.customBackground)
+            FrameCaptureAnchor { [previewViewBox] view in
+                previewViewBox.view = view
+            }
             RealityView { content in
                 content.camera = .virtual
                 content.environment = .default
@@ -987,6 +992,28 @@ private struct WASDZoomCatcher: NSViewRepresentable {
         private func removeMonitor() {
             if let m = monitor { NSEvent.removeMonitor(m); monitor = nil }
         }
+    }
+}
+
+/// Holds a weak reference to the preview's NSView so "Export Current Frame"
+/// can locate the region to capture without keeping the view alive.
+private final class PreviewViewBox {
+    weak var view: NSView?
+}
+
+/// Invisible anchor that fills the preview area and reports its NSView,
+/// giving FrameCapture an exact on-screen rect for the 3D frame.
+private struct FrameCaptureAnchor: NSViewRepresentable {
+    var resolve: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { resolve(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { resolve(nsView) }
     }
 }
 
