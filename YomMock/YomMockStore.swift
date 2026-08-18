@@ -409,14 +409,19 @@ final class YomMockStore {
                         self.videoExportProgress = p
                     }
                 )
+                isExportingVideo = false
                 lastExportedVideoURL = finalURL
                 showVideoSuccess = true
-                // Auto-hide after 5s
-                try? await Task.sleep(for: .seconds(5))
-                showVideoSuccess = false
+                // Auto-hide after 5s (like image export)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(4.5))
+                    showVideoSuccess = false
+                }
             } catch is CancellationError {
+                isExportingVideo = false
                 videoExportError = nil
             } catch {
+                isExportingVideo = false
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 if msg.lowercased().contains("cancel") {
                     videoExportError = nil
@@ -425,7 +430,6 @@ final class YomMockStore {
                     projectError = msg
                 }
             }
-            isExportingVideo = false
             videoExporter = nil
             videoExportTask = nil
         }
