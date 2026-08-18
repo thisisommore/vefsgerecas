@@ -39,6 +39,8 @@ struct ContentView: View {
                     displayStatus: $displayStatus
                 )
                 .frame(width: 210)
+                .disabled(store.isExportingVideo)
+                .opacity(store.isExportingVideo ? 0.6 : 1)
             }
             .frame(minHeight: 330)
 
@@ -50,6 +52,8 @@ struct ContentView: View {
                 onSaveCheckpoint: saveCheckpoint
             )
             .frame(height: 148)
+            .disabled(store.isExportingVideo)
+            .opacity(store.isExportingVideo ? 0.6 : 1)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: store.selectedColor) { _, _ in
@@ -90,6 +94,10 @@ struct ContentView: View {
                 store.displayImage = img
             }
             store.frameCaptureViewProvider = { [previewViewBox] in previewViewBox.view }
+            store.videoApplyPose = { [weak scene] orbit, zoom, pan in
+                guard let scene else { return }
+                scene.apply(orbit: orbit, zoom: zoom, pan: pan)
+            }
             updateWindowTitle()
         }
         .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
@@ -105,6 +113,11 @@ struct ContentView: View {
             Text(store.projectError ?? "")
         }
         .overlay(alignment: .bottom) { exportSuccessOverlay }
+        .overlay(alignment: .bottom) { videoExportOverlay }
+        .overlay { videoFreezeOverlay }
+        .sheet(isPresented: $store.showVideoOptions) {
+            VideoExportOptionsView(store: store)
+        }
     }
 
     private func updateWindowTitle() {
@@ -123,6 +136,41 @@ struct ContentView: View {
                 .padding(.bottom, 16)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.showExportSuccess)
+        }
+    }
+
+    @ViewBuilder
+    private var videoExportOverlay: some View {
+        ZStack {
+            if store.isExportingVideo {
+                // Freeze HUD moved to full-screen videoFreezeOverlay; keep bottom empty while exporting
+                Color.clear
+            } else if store.showVideoSuccess {
+                VideoExportSuccessToast(store: store)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.isExportingVideo)
+        .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.showVideoSuccess)
+    }
+
+    @ViewBuilder
+    private var videoFreezeOverlay: some View {
+        if store.isExportingVideo {
+            ZStack {
+                // Dim + blur that blocks hit-testing to inspector/timeline, but preview stays visible underneath
+                Color.black.opacity(0.18)
+                    .background(.ultraThinMaterial.opacity(0.4))
+                    .ignoresSafeArea()
+                    .allowsHitTesting(true)
+                VideoExportProgressHUD(progress: store.videoExportProgress) {
+                    store.cancelVideoExport()
+                }
+                .frame(maxWidth: 380)
+                .padding(.horizontal, 16)
+            }
+            .transition(.opacity)
         }
     }
 
@@ -194,20 +242,20 @@ struct ContentView: View {
             .background {
                 ZStack {
                     ScrollZoomCatcher { event in
-                        guard !store.timeline.isPlaying else { return }
+                        guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                         userMovedCamera = true
                         scene.hasUserInteracted = true
                         animateZoom(to: PhoneScene.adjustedZoom(from: store.zoom, event: event))
                     }
                     CameraPanCatcher(
                         onPan: { delta in
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.pan(by: delta)
                         },
                         onOrbit: { delta in
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.orbit(by: delta)
@@ -215,27 +263,27 @@ struct ContentView: View {
                     )
                     WASDZoomCatcher(
                         onZoomIn: {
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             let target = min(store.zoom * Float(exp(0.08)), PhoneScene.maxZoom)
                             animateZoom(to: target)
                         },
                         onZoomOut: {
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             let target = max(store.zoom * Float(exp(-0.08)), PhoneScene.minZoom)
                             animateZoom(to: target)
                         },
                         onRotateLeft: {
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.rotateYaw(by: -0.09)
                         },
                         onRotateRight: {
-                            guard !store.timeline.isPlaying else { return }
+                            guard !store.timeline.isPlaying, !store.isExportingVideo else { return }
                             userMovedCamera = true
                             scene.hasUserInteracted = true
                             scene.rotateYaw(by: 0.09)
@@ -243,6 +291,7 @@ struct ContentView: View {
                     )
                 }
             }
+            .allowsHitTesting(!store.isExportingVideo)
 
             TimelinePlaybackDriver(timeline: store.timeline, apply: applyEvaluatedPose)
 
@@ -1146,6 +1195,84 @@ private struct ExportSuccessToast: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 420)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 8)
+    }
+}
+
+private struct VideoExportProgressHUD: View {
+    var progress: Double
+    var onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView(value: progress)
+                .progressViewStyle(.circular)
+                .scaleEffect(0.8)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Exporting video…")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("\(Int(progress * 100))%")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Cancel", action: onCancel)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 360)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 8)
+    }
+}
+
+private struct VideoExportSuccessToast: View {
+    @Bindable var store: YomMockStore
+    var body: some View {
+        let fileName = store.lastExportedVideoURL?.lastPathComponent ?? "Video"
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Color.primary.opacity(0.08)).frame(width: 32, height: 32)
+                Image(systemName: "film.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Video exported")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(fileName)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Button {
+                store.showExportedVideoInFinder()
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .tint(.accentColor)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { store.dismissVideoSuccess() }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)

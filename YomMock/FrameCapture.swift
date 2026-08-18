@@ -30,8 +30,11 @@ enum FrameCapture {
     /// Captures the window at native backing resolution using
     /// SCContentFilter(desktopIndependentWindow:). No TCC prompt for own window.
     static func capture(window: NSWindow) async throws -> CGImage {
-        // Current-process shareable content is permission-free and available macOS 14.4+.
-        // Target is 26.1 so always available.
+        try await capture(window: window, targetScale: 1.0)
+    }
+
+    /// Captures with optional downscale (0.25…1.0). Scale < 1 sets SCScreenshotConfiguration width/height.
+    static func capture(window: NSWindow, targetScale: CGFloat) async throws -> CGImage {
         let content = try await SCShareableContent.currentProcess
         let windowID = CGWindowID(window.windowNumber)
         guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else {
@@ -40,19 +43,28 @@ enum FrameCapture {
         let filter = SCContentFilter(desktopIndependentWindow: scWindow)
         let config = SCScreenshotConfiguration()
         config.showsCursor = false
-        // Default width/height == window size at best resolution; keep default
-        // to avoid scaling artifacts. Ignore shadows for a clean export.
         config.ignoreShadows = true
+        if targetScale < 0.999, targetScale > 0.05 {
+            let nativeW = window.contentLayoutRect.width * window.backingScaleFactor
+            let nativeH = window.contentLayoutRect.height * window.backingScaleFactor
+            // Fallback to frame if contentLayout incorrect
+            let w = max(16, Int((nativeW * targetScale).rounded()))
+            let h = max(16, Int((nativeH * targetScale).rounded()))
+            config.width = w - (w % 2)
+            config.height = h - (h % 2)
+        }
 
         let output = try await SCScreenshotManager.captureScreenshot(
             contentFilter: filter, configuration: config)
-        if let img = output.sdrImage {
-            return img
-        }
-        if let img = output.hdrImage {
-            return img
-        }
+        if let img = output.sdrImage { return img }
+        if let img = output.hdrImage { return img }
         throw CaptureError.noImage
+    }
+
+    static func nativePixelSize(for view: NSView, window: NSWindow) -> CGSize? {
+        let rectInWindow = view.convert(view.bounds, to: nil)
+        let scale = window.backingScaleFactor
+        return CGSize(width: rectInWindow.width * scale, height: rectInWindow.height * scale)
     }
 
     /// Crops a full-window capture to a view rect given in window

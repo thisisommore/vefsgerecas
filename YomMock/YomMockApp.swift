@@ -164,6 +164,12 @@ struct YomMockApp: App {
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(focusedStore == nil)
+
+                Button("Export Video…") {
+                    focusedStore?.exportVideo()
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift, .option])
+                .disabled(focusedStore == nil)
             }
         }
 

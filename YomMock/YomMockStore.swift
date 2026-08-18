@@ -37,6 +37,19 @@ final class YomMockStore {
     var showExportSuccess = false
     @ObservationIgnored private var exportSuccessTask: Task<Void, Never>?
 
+    // MARK: - Video export
+    var isExportingVideo = false
+    var videoExportProgress: Double = 0
+    var lastExportedVideoURL: URL?
+    var showVideoSuccess = false
+    var videoExportError: String?
+    @ObservationIgnored private var videoExportTask: Task<Void, Never>?
+    @ObservationIgnored private var videoExporter: VideoExporter?
+    var pendingVideoExportURL: URL?
+    var pendingVideoOptions = VideoExportOptions()
+    var showVideoOptions = false
+    @ObservationIgnored var videoApplyPose: ((OrbitPose, Float, SIMD3<Float>) -> Void)?
+
     /// Set by ContentView; returns the NSView hosting the 3D preview so
     /// "Export Current Frame" can capture exactly that region.
     @ObservationIgnored var frameCaptureViewProvider: (() -> NSView?)?
@@ -333,6 +346,104 @@ final class YomMockStore {
             exportSuccessTask = nil
         }
     }
+
+    // MARK: - Video export helpers
+
+    func exportVideo() {
+        guard let view = frameCaptureViewProvider?(), view.window != nil else {
+            projectError = "There is no preview to export."
+            return
+        }
+        // Show options first — format/resolution chosen before filename so extension is correct
+        showVideoOptions = true
+    }
+
+    func startVideoExport() {
+        // Called from options sheet after user picks format/resolution — now ask for location
+        guard let view = frameCaptureViewProvider?(), let window = view.window,
+              let applyPose = videoApplyPose else {
+            projectError = "Cannot start video export — preview not ready."
+            return
+        }
+        let options = pendingVideoOptions
+        let base = projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let panel = NSSavePanel()
+        panel.title = "Export Video"
+        panel.message = "Choose where to save the timeline video as \(options.format.rawValue)."
+        panel.nameFieldStringValue = "\(base).\(options.fileExtension)"
+        panel.allowedContentTypes = options.format == .mp4_h264 ? [.mpeg4Movie] : [.quickTimeMovie]
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        guard panel.runModal() == .OK, let outputURL = panel.url else { return }
+        let nativeSize = FrameCapture.nativePixelSize(for: view, window: window) ?? CGSize(width: 1280, height: 720)
+        // Ensure extension matches chosen format (user may have typed custom name without ext)
+        let finalURL: URL = {
+            let ext = options.fileExtension.lowercased()
+            if outputURL.pathExtension.lowercased() == ext { return outputURL }
+            if outputURL.pathExtension.isEmpty { return outputURL.appendingPathExtension(ext) }
+            return outputURL.deletingPathExtension().appendingPathExtension(ext)
+        }()
+        // Remember for next time
+        pendingVideoExportURL = finalURL
+
+        isExportingVideo = true
+        videoExportProgress = 0
+        videoExportError = nil
+        showVideoSuccess = false
+        showVideoOptions = false
+
+        let exporter = VideoExporter()
+        videoExporter = exporter
+        videoExportTask?.cancel()
+        videoExportTask = Task { @MainActor in
+            do {
+                try await exporter.export(
+                    timeline: timeline,
+                    previewView: view,
+                    window: window,
+                    nativePreviewSize: nativeSize,
+                    options: options,
+                    outputURL: finalURL,
+                    applyPose: { orbit, zoom, pan in applyPose(orbit, zoom, pan) },
+                    onProgress: { @MainActor p in
+                        self.videoExportProgress = p
+                    }
+                )
+                lastExportedVideoURL = finalURL
+                showVideoSuccess = true
+                // Auto-hide after 5s
+                try? await Task.sleep(for: .seconds(5))
+                showVideoSuccess = false
+            } catch is CancellationError {
+                videoExportError = nil
+            } catch {
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                if msg.lowercased().contains("cancel") {
+                    videoExportError = nil
+                } else {
+                    videoExportError = msg
+                    projectError = msg
+                }
+            }
+            isExportingVideo = false
+            videoExporter = nil
+            videoExportTask = nil
+        }
+    }
+
+    func cancelVideoExport() {
+        Task { await videoExporter?.cancel() }
+        videoExportTask?.cancel()
+        isExportingVideo = false
+        videoExportProgress = 0
+    }
+
+    func showExportedVideoInFinder() {
+        guard let url = lastExportedVideoURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func dismissVideoSuccess() { showVideoSuccess = false }
 
     private func performSave(to url: URL) {
         do {
