@@ -280,6 +280,7 @@ final class YomMockStore {
     // MARK: - Frame export
 
     /// Captures the current preview frame and saves it as a PNG.
+    /// Suppresses modal spam for transient stream errors while switching Spaces (e.g. to Meet).
     func exportCurrentFrame() {
         guard let view = frameCaptureViewProvider?(), let window = view.window else {
             projectError = "There is no preview frame to export yet."
@@ -295,7 +296,24 @@ final class YomMockStore {
                 }
                 presentFrameSavePanel(for: frame)
             } catch {
-                projectError = error.localizedDescription
+                let msg = error.localizedDescription
+                // Don't spam modal Error when user is mid-Space switch with Meet; retry once silently
+                let isTransientStream = msg.lowercased().contains("stream") || msg.lowercased().contains("capture failure")
+                if isTransientStream {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    do {
+                        let image = try await FrameCapture.capture(window: window)
+                        guard let frame = FrameCapture.crop(image, toViewRect: rectInWindow, window: window) else {
+                            projectError = FrameCapture.CaptureError.cropFailed.localizedDescription
+                            return
+                        }
+                        presentFrameSavePanel(for: frame)
+                        return
+                    } catch {
+                        // Fall through to show error if retry also fails
+                    }
+                }
+                projectError = msg
             }
         }
     }

@@ -34,31 +34,83 @@ enum FrameCapture {
     }
 
     /// Captures with optional downscale (0.25…1.0). Scale < 1 sets SCScreenshotConfiguration width/height.
+    /// Retries transient stream failures (e.g. while switching Spaces/desktops with Meet) and
+    /// falls back to view-layer snapshot when the window is offscreen or ScreenCaptureKit is busy.
     static func capture(window: NSWindow, targetScale: CGFloat) async throws -> CGImage {
-        let content = try await SCShareableContent.currentProcess
-        let windowID = CGWindowID(window.windowNumber)
-        guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else {
-            throw CaptureError.windowNotFound
-        }
-        let filter = SCContentFilter(desktopIndependentWindow: scWindow)
-        let config = SCScreenshotConfiguration()
-        config.showsCursor = false
-        config.ignoreShadows = true
-        if targetScale < 0.999, targetScale > 0.05 {
-            let nativeW = window.contentLayoutRect.width * window.backingScaleFactor
-            let nativeH = window.contentLayoutRect.height * window.backingScaleFactor
-            // Fallback to frame if contentLayout incorrect
-            let w = max(16, Int((nativeW * targetScale).rounded()))
-            let h = max(16, Int((nativeH * targetScale).rounded()))
-            config.width = w - (w % 2)
-            config.height = h - (h % 2)
+        // Fast-path: if window is not on the active Space / is occluded, avoid ScreenCaptureKit stream error
+        // and capture the preview view directly via its backing layer. This works even when the desktop
+        // is switched to make Google Meet visible.
+        if window.occlusionState.rawValue & NSWindow.OcclusionState.visible.rawValue == 0 {
+            if let view = window.contentView, let fallback = snapshotContentView(view, window: window, targetScale: targetScale) {
+                return fallback
+            }
         }
 
-        let output = try await SCScreenshotManager.captureScreenshot(
-            contentFilter: filter, configuration: config)
-        if let img = output.sdrImage { return img }
-        if let img = output.hdrImage { return img }
-        throw CaptureError.noImage
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                let content = try await SCShareableContent.currentProcess
+                let windowID = CGWindowID(window.windowNumber)
+                guard let scWindow = content.windows.first(where: { $0.windowID == windowID }) else {
+                    throw CaptureError.windowNotFound
+                }
+                let filter = SCContentFilter(desktopIndependentWindow: scWindow)
+                let config = SCScreenshotConfiguration()
+                config.showsCursor = false
+                config.ignoreShadows = true
+                if targetScale < 0.999, targetScale > 0.05 {
+                    let nativeW = window.contentLayoutRect.width * window.backingScaleFactor
+                    let nativeH = window.contentLayoutRect.height * window.backingScaleFactor
+                    let w = max(16, Int((nativeW * targetScale).rounded()))
+                    let h = max(16, Int((nativeH * targetScale).rounded()))
+                    config.width = w - (w % 2)
+                    config.height = h - (h % 2)
+                }
+
+                let output = try await SCScreenshotManager.captureScreenshot(
+                    contentFilter: filter, configuration: config)
+                if let img = output.sdrImage { return img }
+                if let img = output.hdrImage { return img }
+                throw CaptureError.noImage
+            } catch {
+                lastError = error
+                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                // Retry only for transient stream failures (common when switching Spaces)
+                let isStreamFailure = msg.lowercased().contains("stream") || msg.lowercased().contains("capture failure") || msg.lowercased().contains("failed to start")
+                if isStreamFailure && attempt < 2 {
+                    // Brief backoff, then retry; keep window ordered front but don't steal Meet focus
+                    try? await Task.sleep(nanoseconds: UInt64(180_000_000 + attempt * 120_000_000))
+                    continue
+                }
+                // For stream failures after retries, try view fallback before throwing modal error
+                let view = window.contentView
+                if let view, let fallback = snapshotContentView(view, window: window, targetScale: targetScale) {
+                    return fallback
+                }
+                throw error
+            }
+        }
+        throw lastError ?? CaptureError.noImage
+    }
+
+    /// Fallback: render the window's contentView layer directly. Works when the window is on another Space
+    /// (e.g. Meet on Desktop 2) and ScreenCaptureKit reports "Failed to start stream…".
+    private static func snapshotContentView(_ contentView: NSView, window: NSWindow, targetScale: CGFloat) -> CGImage? {
+        // Must be called on MainActor – caller is already MainActor-isolated via store
+        let bounds = contentView.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let scale = targetScale < 0.999 && targetScale > 0.05 ? targetScale : 1.0
+        let pixelW = max(1, Int((bounds.width * window.backingScaleFactor * scale).rounded()))
+        let pixelH = max(1, Int((bounds.height * window.backingScaleFactor * scale).rounded()))
+        guard let rep = contentView.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        contentView.cacheDisplay(in: bounds, to: rep)
+        guard let cg = rep.cgImage else { return nil }
+        if cg.width == pixelW && cg.height == pixelH { return cg }
+        // Resize to target if needed
+        guard let ctx = CGContext(data: nil, width: pixelW, height: pixelH, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return cg }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: pixelW, height: pixelH))
+        return ctx.makeImage() ?? cg
     }
 
     static func nativePixelSize(for view: NSView, window: NSWindow) -> CGSize? {
