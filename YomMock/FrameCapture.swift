@@ -93,6 +93,28 @@ enum FrameCapture {
         throw lastError ?? CaptureError.noImage
     }
 
+    /// Direct preview-view snapshot for Offline Metal Compositor.
+    /// Renders the given view (not whole window) offscreen via AppKit's display path.
+    /// No ScreenCaptureKit, no window server capture - works minimized/off-Space.
+    /// Must be called on MainActor.
+    static func snapshotPreviewView(_ previewView: NSView, window: NSWindow, outputSize: CGSize? = nil) -> CGImage? {
+        let bounds = previewView.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        guard let rep = previewView.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        previewView.cacheDisplay(in: bounds, to: rep)
+        guard let cg = rep.cgImage else { return nil }
+        if let out = outputSize, out.width > 0, out.height > 0 {
+            let w = Int(out.width)
+            let h = Int(out.height)
+            if cg.width == w && cg.height == h { return cg }
+            guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return cg }
+            ctx.interpolationQuality = .high
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return ctx.makeImage() ?? cg
+        }
+        return cg
+    }
+
     /// Fallback: render the window's contentView layer directly. Works when the window is on another Space
     /// (e.g. Meet on Desktop 2) and ScreenCaptureKit reports "Failed to start stream…".
     private static func snapshotContentView(_ contentView: NSView, window: NSWindow, targetScale: CGFloat) -> CGImage? {

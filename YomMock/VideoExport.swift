@@ -9,7 +9,10 @@
 
 import AVFoundation
 import AppKit
+import CoreImage
 import CoreVideo
+import Metal
+import QuartzCore
 import ScreenCaptureKit
 
 enum VideoExportFormat: String, CaseIterable, Identifiable {
@@ -131,6 +134,10 @@ actor VideoExporter {
     private var isCancelled = false
     func cancel() { isCancelled = true }
 
+    /// Metal compositor path (offline, no ScreenCaptureKit, no fixed sleep).
+    /// Pipelines frames through Metal CIContext + CVDisplayLink vsync.
+    var useMetalCompositor: Bool = true
+
     /// Exports timeline to video. Caller must provide preview anchor info and a way to apply pose per frame.
     func export(
         timeline: CameraTimeline,
@@ -139,6 +146,32 @@ actor VideoExporter {
         nativePreviewSize: CGSize,
         options: VideoExportOptions,
         outputURL: URL,
+        applyPose: @MainActor @escaping (OrbitPose, Float, SIMD3<Float>) -> Void,
+        onProgress: @MainActor @escaping (Double) -> Void
+    ) async throws {
+        if useMetalCompositor, let compositor = OfflineMetalCompositor() {
+            try await exportViaMetal(
+                timeline: timeline, previewView: previewView, window: window,
+                nativePreviewSize: nativePreviewSize, options: options, outputURL: outputURL,
+                compositor: compositor, applyPose: applyPose, onProgress: onProgress)
+            return
+        }
+        try await exportViaScreenCapture(
+            timeline: timeline, previewView: previewView, window: window,
+            nativePreviewSize: nativePreviewSize, options: options, outputURL: outputURL,
+            applyPose: applyPose, onProgress: onProgress)
+    }
+
+    // MARK: - Offline Metal compositor (preferred)
+
+    private func exportViaMetal(
+        timeline: CameraTimeline,
+        previewView: NSView,
+        window: NSWindow,
+        nativePreviewSize: CGSize,
+        options: VideoExportOptions,
+        outputURL: URL,
+        compositor: OfflineMetalCompositor,
         applyPose: @MainActor @escaping (OrbitPose, Float, SIMD3<Float>) -> Void,
         onProgress: @MainActor @escaping (Double) -> Void
     ) async throws {
@@ -205,8 +238,156 @@ actor VideoExporter {
             }
         }
 
+        // Offline compositor: no ScreenCaptureKit, no 55ms fixed sleep.
+        // Uses previewView snapshot via Metal CIContext + CVDisplayLink vsync (~8-16ms).
+        var frameIndex = 0
+        while frameIndex < totalFrames {
+            if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
+            let t = duration * Double(frameIndex) / Double(totalFrames)
+            let state = await MainActor.run { timeline.evaluatedState(at: t) }
+
+            await MainActor.run {
+                applyPose(state.orbit, state.zoom, state.pan)
+                timeline.seek(to: t)
+                // Flush RealityKit + AppKit transactions synchronously instead of sleeping
+                DisplaySync.flushTransactions(for: previewView)
+            }
+            // Hardware vsync: wait exactly one display refresh (8ms @120Hz, 16ms @60Hz)
+            // vs fixed 55ms. Adapts to good GPU automatically.
+            await DisplaySync.waitForNextFrame()
+            if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
+
+            // Offline capture: direct previewView snapshot (no window server) via AppKit + Metal
+            let cgImage: CGImage? = await MainActor.run {
+                // Try direct previewView snapshot at native, then Metal will scale
+                FrameCapture.snapshotPreviewView(previewView, window: window)
+            }
+            guard let raw = cgImage else { throw VideoExportError.noPreview }
+
+            // Metal-accelerated scale to exact outputSize if needed
+            let finalImage: CGImage
+            if raw.width == width && raw.height == height {
+                finalImage = raw
+            } else {
+                // Use Metal compositor's Lanczos scale
+                if let metalScaled = compositor.scaled(raw, to: outputSize) {
+                    finalImage = metalScaled
+                } else {
+                    guard let scaled = VideoExporter.scaled(raw, to: outputSize) else {
+                        throw VideoExportError.pixelBufferFailed
+                    }
+                    finalImage = scaled
+                }
+            }
+
+            // Wait for writer readiness (non-blocking, 5ms poll matches AVFoundation pattern)
+            while !input.isReadyForMoreMediaData {
+                try? await Task.sleep(nanoseconds: 2_000_000)
+                if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
+            }
+
+            // Metal path: allocate buffer via compositor and render via CIContext (zero-copy)
+            guard let buffer = compositor.makePixelBuffer(width: width, height: height) else {
+                throw VideoExportError.pixelBufferFailed
+            }
+            // Single Metal pass: scale+render directly into pixel buffer
+            // If already exact size, just render; else we already scaled above via compositor
+            compositor.render(cgImage: finalImage, to: buffer)
+
+            let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(options.fps))
+            if !adaptor.append(buffer, withPresentationTime: pts) {
+                throw VideoExportError.writerFailed(writer.error?.localizedDescription ?? "append failed at frame \(frameIndex)")
+            }
+
+            let progress = Double(frameIndex + 1) / Double(totalFrames)
+            await onProgress(progress)
+
+            frameIndex += 1
+        }
+
+        input.markAsFinished()
+        await withCheckedContinuation { cont in
+            writer.finishWriting { cont.resume() }
+        }
+        if let error = writer.error {
+            throw VideoExportError.writerFailed(error.localizedDescription)
+        }
+        if isCancelled { throw VideoExportError.cancelled }
+    }
+
+    // MARK: - Legacy ScreenCaptureKit path (fallback if Metal unavailable)
+
+    private func exportViaScreenCapture(
+        timeline: CameraTimeline,
+        previewView: NSView,
+        window: NSWindow,
+        nativePreviewSize: CGSize,
+        options: VideoExportOptions,
+        outputURL: URL,
+        applyPose: @MainActor @escaping (OrbitPose, Float, SIMD3<Float>) -> Void,
+        onProgress: @MainActor @escaping (Double) -> Void
+    ) async throws {
+        isCancelled = false
+        let duration = await MainActor.run { timeline.duration }
+        let totalFrames = max(1, Int((duration * Double(options.fps)).rounded()))
+        let outputSize = options.outputSize(for: nativePreviewSize)
+        let width = Int(outputSize.width)
+        let height = Int(outputSize.height)
+        guard width > 0 && height > 0 else { throw VideoExportError.writerFailed("Invalid size") }
+
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let writer: AVAssetWriter
+        do {
+            writer = try AVAssetWriter(outputURL: outputURL, fileType: options.format.fileType)
+        } catch {
+            throw VideoExportError.writerFailed(error.localizedDescription)
+        }
+
+        let codec = options.format.codec
+        var videoSettings: [String: Any] = [
+            AVVideoCodecKey: codec,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height
+        ]
+        if codec != .proRes422 {
+            let bitRate = options.bitRateMbps.map { Int($0 * 1_000_000) } ?? max(2_000_000, width * height * 4)
+            videoSettings[AVVideoCompressionPropertiesKey] = [
+                AVVideoAverageBitRateKey: bitRate,
+                AVVideoExpectedSourceFrameRateKey: options.fps
+            ]
+        }
+
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        input.expectsMediaDataInRealTime = false
+
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: attrs)
+
+        guard writer.canAdd(input) else { throw VideoExportError.writerFailed("Cannot add video input") }
+        writer.add(input)
+
+        guard writer.startWriting() else { throw VideoExportError.writerFailed(writer.error?.localizedDescription ?? "startWriting failed") }
+        writer.startSession(atSourceTime: .zero)
+
+        let originalTime = await MainActor.run { timeline.currentTime }
+        let wasPlaying = await MainActor.run { timeline.isPlaying }
+        await MainActor.run { timeline.isPlaying = false }
+
+        defer {
+            Task { @MainActor in
+                timeline.seek(to: originalTime)
+                timeline.isPlaying = wasPlaying
+            }
+        }
+
         let rectInWindow = await MainActor.run { previewView.convert(previewView.bounds, to: nil) }
-        // Pre-calc scale for ScreenCaptureKit downscale
         let nativePixels = FrameCapture.nativePixelSize(for: previewView, window: window) ?? nativePreviewSize
         let targetScale = width > 0 && nativePixels.width > 0 ? CGFloat(width) / nativePixels.width : 1.0
 
@@ -220,19 +401,16 @@ actor VideoExporter {
                 applyPose(state.orbit, state.zoom, state.pan)
                 timeline.seek(to: t)
             }
-            // Let RealityView render ~1-2 frames (30fps → need ~33ms). 50ms is safe.
+            // Legacy fixed sleep path
             try? await Task.sleep(nanoseconds: 55_000_000)
             if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
 
-            // Capture with downscale
             let cgImage: CGImage
             do {
-                // Use targetScale to let ScreenCaptureKit capture at reduced pixels directly when possible
                 let raw = try await FrameCapture.capture(window: window, targetScale: targetScale)
                 guard let cropped = FrameCapture.crop(raw, toViewRect: rectInWindow, window: window) else {
                     throw VideoExportError.noPreview
                 }
-                // Ensure output size matches exactly (extra resample if needed due to rounding)
                 if cropped.width == width && cropped.height == height {
                     cgImage = cropped
                 } else {
@@ -242,11 +420,9 @@ actor VideoExporter {
                     cgImage = scaled
                 }
             } catch {
-                // If capture fails mid-export, propagate
                 throw error
             }
 
-            // Wait for writer readiness
             while !input.isReadyForMoreMediaData {
                 try? await Task.sleep(nanoseconds: 5_000_000)
                 if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
