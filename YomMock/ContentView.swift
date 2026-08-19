@@ -158,19 +158,14 @@ struct ContentView: View {
     @ViewBuilder
     private var videoFreezeOverlay: some View {
         if store.isExportingVideo {
-            ZStack {
-                // Dim + blur that blocks hit-testing to inspector/timeline, but preview stays visible underneath
-                Color.black.opacity(0.18)
-                    .background(.ultraThinMaterial.opacity(0.4))
-                    .ignoresSafeArea()
-                    .allowsHitTesting(true)
-                VideoExportProgressHUD(progress: store.videoExportProgress) {
-                    store.cancelVideoExport()
-                }
-                .frame(maxWidth: 380)
-                .padding(.horizontal, 16)
-            }
-            .transition(.opacity)
+            // HUD is now in a detached NSPanel (VideoExportHUDPanelController) so
+            // SCContentFilter(desktopIndependentWindow: mainWindow) captures only
+            // the preview. Keep an invisible hit-blocker in the main window; the
+            // visual dim+HUD lives in the panel and is never captured.
+            Color.clear
+                .contentShape(Rectangle())
+                .allowsHitTesting(true)
+                .ignoresSafeArea()
         }
     }
 

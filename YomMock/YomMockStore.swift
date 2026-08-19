@@ -49,6 +49,7 @@ final class YomMockStore {
     var pendingVideoOptions = VideoExportOptions()
     var showVideoOptions = false
     @ObservationIgnored var videoApplyPose: ((OrbitPose, Float, SIMD3<Float>) -> Void)?
+    @ObservationIgnored private var hudController: VideoExportHUDPanelController?
 
     /// Set by ContentView; returns the NSView hosting the 3D preview so
     /// "Export Current Frame" can capture exactly that region.
@@ -410,6 +411,12 @@ final class YomMockStore {
         showVideoSuccess = false
         showVideoOptions = false
 
+        // Show HUD in detached NSPanel so SCContentFilter(desktopIndependentWindow:) capture of main window stays clean
+        if hudController == nil { hudController = VideoExportHUDPanelController() }
+        hudController?.show(parentWindow: window, progress: 0) { [weak self] in
+            self?.cancelVideoExport()
+        }
+
         let exporter = VideoExporter()
         videoExporter = exporter
         videoExportTask?.cancel()
@@ -425,9 +432,11 @@ final class YomMockStore {
                     applyPose: { orbit, zoom, pan in applyPose(orbit, zoom, pan) },
                     onProgress: { @MainActor p in
                         self.videoExportProgress = p
+                        self.hudController?.update(progress: p) { [weak self] in self?.cancelVideoExport() }
                     }
                 )
                 isExportingVideo = false
+                hudController?.hide()
                 lastExportedVideoURL = finalURL
                 showVideoSuccess = true
                 // Auto-hide after 5s (like image export)
@@ -437,9 +446,11 @@ final class YomMockStore {
                 }
             } catch is CancellationError {
                 isExportingVideo = false
+                hudController?.hide()
                 videoExportError = nil
             } catch {
                 isExportingVideo = false
+                hudController?.hide()
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 if msg.lowercased().contains("cancel") {
                     videoExportError = nil
@@ -456,6 +467,7 @@ final class YomMockStore {
     func cancelVideoExport() {
         Task { await videoExporter?.cancel() }
         videoExportTask?.cancel()
+        hudController?.hide()
         isExportingVideo = false
         videoExportProgress = 0
     }
