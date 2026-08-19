@@ -48,11 +48,13 @@ final class YomMockStore {
     var pendingVideoExportURL: URL?
     var pendingVideoOptions = VideoExportOptions()
     var showVideoOptions = false
-    @ObservationIgnored var videoApplyPose: ((OrbitPose, Float, SIMD3<Float>) -> Void)?
-    @ObservationIgnored private var hudController: VideoExportHUDPanelController?
+    /// Cached offscreen renderer for "Export Current Frame" stills — reused
+    /// across exports so the USDZ + IBL setup cost is paid only once.
+    @ObservationIgnored private var stillRenderer: OffscreenSceneRenderer?
+    @ObservationIgnored private var stillRendererKey: String?
 
     /// Set by ContentView; returns the NSView hosting the 3D preview so
-    /// "Export Current Frame" can capture exactly that region.
+    /// exports can match its aspect ratio and backdrop scale.
     @ObservationIgnored var frameCaptureViewProvider: (() -> NSView?)?
 
     var windowTitle: String {
@@ -280,43 +282,56 @@ final class YomMockStore {
 
     // MARK: - Frame export
 
-    /// Captures the current preview frame and saves it as a PNG.
-    /// Suppresses modal spam for transient stream errors while switching Spaces (e.g. to Meet).
+    /// Renders the current timeline state offscreen on the GPU (4K class, any
+    /// aspect) and saves it as a PNG. No screen capture — works with the
+    /// window minimized or on another Space.
     func exportCurrentFrame() {
-        guard let view = frameCaptureViewProvider?(), let window = view.window else {
-            projectError = "There is no preview frame to export yet."
-            return
-        }
-        let rectInWindow = view.convert(view.bounds, to: nil)
+        let previewPoints = previewPointSize()
+        let inputs = makeSceneInputs()
+        let state = timeline.evaluatedState()
         Task { @MainActor in
             do {
-                let image = try await FrameCapture.capture(window: window)
-                guard let frame = FrameCapture.crop(image, toViewRect: rectInWindow, window: window) else {
-                    projectError = FrameCapture.CaptureError.cropFailed.localizedDescription
+                let size = VideoExportOptions(resolution: .p2160).outputSize(
+                    previewPoints: previewPoints, backingScale: 1)
+                let key = "\(Int(size.width))x\(Int(size.height))"
+                if stillRenderer == nil || stillRendererKey != key {
+                    stillRenderer = try await OffscreenSceneRenderer(
+                        outputSize: size, previewPointSize: previewPoints, inputs: inputs)
+                    stillRendererKey = key
+                } else if let stillRenderer {
+                    await stillRenderer.update(inputs: inputs)
+                }
+                guard let renderer = stillRenderer else { return }
+                let buffer = try await renderer.render(
+                    orbit: state.orbit, zoom: state.zoom, pan: state.pan, deltaTime: 1.0 / 30)
+                guard let image = renderer.makeCGImage(from: buffer) else {
+                    projectError = "Could not create an image from the rendered frame."
                     return
                 }
-                presentFrameSavePanel(for: frame)
+                presentFrameSavePanel(for: image)
             } catch {
-                let msg = error.localizedDescription
-                // Don't spam modal Error when user is mid-Space switch with Meet; retry once silently
-                let isTransientStream = msg.lowercased().contains("stream") || msg.lowercased().contains("capture failure")
-                if isTransientStream {
-                    try? await Task.sleep(nanoseconds: 300_000_000)
-                    do {
-                        let image = try await FrameCapture.capture(window: window)
-                        guard let frame = FrameCapture.crop(image, toViewRect: rectInWindow, window: window) else {
-                            projectError = FrameCapture.CaptureError.cropFailed.localizedDescription
-                            return
-                        }
-                        presentFrameSavePanel(for: frame)
-                        return
-                    } catch {
-                        // Fall through to show error if retry also fails
-                    }
-                }
-                projectError = msg
+                projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    /// Snapshot of everything the offscreen renderer needs — safe to keep
+    /// editing the project while an export runs.
+    private func makeSceneInputs() -> OffscreenSceneRenderer.Inputs {
+        let gradient = background.gradient(custom: customBackground)
+        let top = NSColor(gradient.top).usingColorSpace(.sRGB) ?? .white
+        let bottom = NSColor(gradient.bottom).usingColorSpace(.sRGB) ?? .white
+        let displayCG = displayImage.flatMap { try? PhoneStyling.sRGBCGImage(from: $0) }
+        return OffscreenSceneRenderer.Inputs(
+            finish: selectedColor.finish(custom: customColor),
+            displayImage: displayCG,
+            backgroundTop: top,
+            backgroundBottom: bottom
+        )
+    }
+
+    private func previewPointSize() -> CGSize {
+        frameCaptureViewProvider?()?.bounds.size ?? CGSize(width: 1280, height: 800)
     }
 
     private func presentFrameSavePanel(for image: CGImage) {
@@ -369,21 +384,12 @@ final class YomMockStore {
     // MARK: - Video export helpers
 
     func exportVideo() {
-        guard let view = frameCaptureViewProvider?(), view.window != nil else {
-            projectError = "There is no preview to export."
-            return
-        }
-        // Show options first — format/resolution chosen before filename so extension is correct
+        // Offscreen rendering needs no window/screen — go straight to options.
         showVideoOptions = true
     }
 
     func startVideoExport() {
         // Called from options sheet after user picks format/resolution — now ask for location
-        guard let view = frameCaptureViewProvider?(), let window = view.window,
-              let applyPose = videoApplyPose else {
-            projectError = "Cannot start video export — preview not ready."
-            return
-        }
         let options = pendingVideoOptions
         let base = projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
         let panel = NSSavePanel()
@@ -394,7 +400,6 @@ final class YomMockStore {
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         guard panel.runModal() == .OK, let outputURL = panel.url else { return }
-        let nativeSize = FrameCapture.nativePixelSize(for: view, window: window) ?? CGSize(width: 1280, height: 720)
         // Ensure extension matches chosen format (user may have typed custom name without ext)
         let finalURL: URL = {
             let ext = options.fileExtension.lowercased()
@@ -411,11 +416,12 @@ final class YomMockStore {
         showVideoSuccess = false
         showVideoOptions = false
 
-        // Show HUD in detached NSPanel so SCContentFilter(desktopIndependentWindow:) capture of main window stays clean
-        if hudController == nil { hudController = VideoExportHUDPanelController() }
-        hudController?.show(parentWindow: window, progress: 0) { [weak self] in
-            self?.cancelVideoExport()
-        }
+        // Snapshot everything the export needs; the timeline + scene stay
+        // fully editable while the GPU renders offscreen.
+        let previewPoints = previewPointSize()
+        let backingScale = frameCaptureViewProvider?()?.window?.backingScaleFactor ?? 2
+        let inputs = makeSceneInputs()
+        let timelineSnapshot = timeline
 
         let exporter = VideoExporter()
         videoExporter = exporter
@@ -423,20 +429,15 @@ final class YomMockStore {
         videoExportTask = Task { @MainActor in
             do {
                 try await exporter.export(
-                    timeline: timeline,
-                    previewView: view,
-                    window: window,
-                    nativePreviewSize: nativeSize,
+                    timeline: timelineSnapshot,
+                    previewPoints: previewPoints,
+                    backingScale: backingScale,
+                    inputs: inputs,
                     options: options,
                     outputURL: finalURL,
-                    applyPose: { orbit, zoom, pan in applyPose(orbit, zoom, pan) },
-                    onProgress: { @MainActor p in
-                        self.videoExportProgress = p
-                        self.hudController?.update(progress: p) { [weak self] in self?.cancelVideoExport() }
-                    }
+                    onProgress: { p in self.videoExportProgress = p }
                 )
                 isExportingVideo = false
-                hudController?.hide()
                 lastExportedVideoURL = finalURL
                 showVideoSuccess = true
                 // Auto-hide after 5s (like image export)
@@ -446,11 +447,9 @@ final class YomMockStore {
                 }
             } catch is CancellationError {
                 isExportingVideo = false
-                hudController?.hide()
                 videoExportError = nil
             } catch {
                 isExportingVideo = false
-                hudController?.hide()
                 let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 if msg.lowercased().contains("cancel") {
                     videoExportError = nil
@@ -465,9 +464,8 @@ final class YomMockStore {
     }
 
     func cancelVideoExport() {
-        Task { await videoExporter?.cancel() }
+        videoExporter?.cancel()
         videoExportTask?.cancel()
-        hudController?.hide()
         isExportingVideo = false
         videoExportProgress = 0
     }

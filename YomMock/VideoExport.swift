@@ -2,18 +2,18 @@
 //  VideoExport.swift
 //  YomMock
 //
-//  Offline video export of the Timeline by stepping through
-//  CameraTimeline and capturing the preview region per frame.
-//  Supports res downscale and mp4/mov formats via AVAssetWriter.
+//  Native GPU video export. Renders the timeline offline with
+//  RealityRenderer straight into Metal-backed CVPixelBuffers at any
+//  resolution (up to 8K, independent of the screen), and encodes with
+//  AVAssetWriter. No ScreenCaptureKit, no window capture, no display
+//  sync — frames render as fast as the GPU + encoder allow.
 //
 
 import AVFoundation
 import AppKit
-import CoreImage
 import CoreVideo
 import Metal
-import QuartzCore
-import ScreenCaptureKit
+import simd
 
 enum VideoExportFormat: String, CaseIterable, Identifiable {
     case mp4_h264 = "MP4 (H.264)"
@@ -44,119 +44,134 @@ enum VideoExportFormat: String, CaseIterable, Identifiable {
         }
     }
 
-    var allowedContentTypes: [String] {
+    /// Bits per pixel used for the automatic bitrate (ProRes ignores bitrate).
+    var autoBitrateBitsPerPixel: Double {
         switch self {
-        case .mp4_h264: return ["public.mpeg-4"]
-        case .mov_hevc, .mov_prores: return ["com.apple.quicktime-movie"]
+        case .mp4_h264: return 4.0
+        case .mov_hevc: return 2.0
+        case .mov_prores: return 0
         }
     }
 }
 
 enum VideoResolutionPreset: String, CaseIterable, Identifiable {
-    case native = "Native"
-    case p1080 = "1080p"
+    case matchPreview = "Match Preview"
     case p720 = "720p"
-    case p540 = "540p"
-    case half = "50%"
-    case quarter = "25%"
+    case p1080 = "1080p"
+    case p1440 = "1440p"
+    case p2160 = "4K · 2160p"
+    case p4320 = "8K · 4320p"
 
     var id: String { rawValue }
 
-    /// Scale factor relative to native preview pixels. p1080/p720/p540 are long-edge targets.
-    var scaleHint: CGFloat? {
+    /// Short-edge target in pixels. nil = render at native preview pixels.
+    var shortEdge: CGFloat? {
         switch self {
-        case .native: return 1.0
-        case .half: return 0.5
-        case .quarter: return 0.25
-        case .p1080, .p720, .p540: return nil
-        }
-    }
-
-    var longEdge: CGFloat? {
-        switch self {
-        case .p1080: return 1920
-        case .p720: return 1280
-        case .p540: return 960
-        default: return nil
+        case .matchPreview: return nil
+        case .p720: return 720
+        case .p1080: return 1080
+        case .p1440: return 1440
+        case .p2160: return 2160
+        case .p4320: return 4320
         }
     }
 }
 
 struct VideoExportOptions {
-    var resolution: VideoResolutionPreset = .native
-    var customScale: CGFloat = 1.0 // used when resolution is native/half/quarter as override
+    var resolution: VideoResolutionPreset = .p2160
     var fps: Int = 30
     var format: VideoExportFormat = .mp4_h264
     var bitRateMbps: Double? = nil // nil = auto
 
-    /// Compute output pixel size from native preview size and chosen preset
-    func outputSize(for native: CGSize) -> CGSize {
-        let baseScale: CGFloat
-        if let hint = resolution.scaleHint {
-            baseScale = hint
-        } else if let longEdge = resolution.longEdge {
-            let nativeLong = max(native.width, native.height)
-            guard nativeLong > 0 else { return native }
-            baseScale = min(1.0, longEdge / nativeLong)
+    /// Output pixel size derived from the preview's aspect ratio. Since frames
+    /// are rendered offscreen by the GPU, presets above the screen resolution
+    /// produce true high-res renders — not upscaled screen recordings.
+    func outputSize(previewPoints: CGSize, backingScale: CGFloat) -> CGSize {
+        let pointW = max(previewPoints.width, 1)
+        let pointH = max(previewPoints.height, 1)
+        let scale: CGFloat
+        if let shortEdge = resolution.shortEdge {
+            scale = shortEdge / min(pointW, pointH)
         } else {
-            baseScale = 1.0
+            scale = max(backingScale, 1)
         }
-        // For native preset allow customScale (1.0)
-        let scale = resolution == .native ? customScale : baseScale
-        let w = max(16, Int((native.width * scale).rounded()))
-        let h = max(16, Int((native.height * scale).rounded()))
-        // H.264/HEVC require even dimensions
-        let evenW = w - (w % 2)
-        let evenH = h - (h % 2)
-        return CGSize(width: evenW, height: evenH)
+        var width = Int((pointW * scale).rounded())
+        var height = Int((pointH * scale).rounded())
+        // Clamp to the GPU 2D texture limit, preserving aspect.
+        let cap = OffscreenSceneRenderer.maxTextureDimension
+        if width > cap || height > cap {
+            let down = CGFloat(cap) / CGFloat(max(width, height))
+            width = Int((CGFloat(width) * down).rounded())
+            height = Int((CGFloat(height) * down).rounded())
+        }
+        // H.264/HEVC require even dimensions.
+        width = max(16, width - (width % 2))
+        height = max(16, height - (height % 2))
+        return CGSize(width: width, height: height)
     }
 
     var fileExtension: String { format.fileExtension }
 }
 
 enum VideoExportError: LocalizedError {
-    case noPreview
     case writerFailed(String)
-    case pixelBufferFailed
     case cancelled
+    case unsupportedSize(codec: String, size: CGSize)
 
     var errorDescription: String? {
         switch self {
-        case .noPreview: return "The preview could not be captured."
         case .writerFailed(let s): return "Video writer failed: \(s)"
-        case .pixelBufferFailed: return "Could not create pixel buffer."
         case .cancelled: return "Export cancelled."
+        case .unsupportedSize(let codec, let size):
+            return "\(codec) cannot encode \(Int(size.width))×\(Int(size.height)). Use HEVC or ProRes for resolutions above 4K."
         }
     }
 }
 
-actor VideoExporter {
+@MainActor
+final class VideoExporter {
     private var isCancelled = false
     func cancel() { isCancelled = true }
 
-    /// Offline Metal compositor - GPU as fast as it can, no ScreenCaptureKit, no sleep.
+    /// Exports the timeline as video, rendering every frame offscreen on the
+    /// GPU. `inputs` is an immutable snapshot, so the user can keep editing
+    /// the live preview while the export runs.
     func export(
         timeline: CameraTimeline,
-        previewView: NSView,
-        window: NSWindow,
-        nativePreviewSize: CGSize,
+        previewPoints: CGSize,
+        backingScale: CGFloat,
+        inputs: OffscreenSceneRenderer.Inputs,
         options: VideoExportOptions,
         outputURL: URL,
-        applyPose: @MainActor @escaping (OrbitPose, Float, SIMD3<Float>) -> Void,
         onProgress: @MainActor @escaping (Double) -> Void
     ) async throws {
-        guard let compositor = OfflineMetalCompositor() else {
-            throw VideoExportError.writerFailed("Metal not available")
-        }
         isCancelled = false
-        let duration = await MainActor.run { timeline.duration }
-        let totalFrames = max(1, Int((duration * Double(options.fps)).rounded()))
-        let outputSize = options.outputSize(for: nativePreviewSize)
+
+        let outputSize = options.outputSize(previewPoints: previewPoints, backingScale: backingScale)
         let width = Int(outputSize.width)
         let height = Int(outputSize.height)
-        guard width > 0 && height > 0 else { throw VideoExportError.writerFailed("Invalid size") }
+        guard width > 0, height > 0 else { throw VideoExportError.writerFailed("Invalid size") }
 
-        // Remove existing file
+        // Hardware H.264 tops out at 4K — fail early with a clear message.
+        if options.format.codec == .h264, width > 4096 || height > 4096 {
+            throw VideoExportError.unsupportedSize(codec: "H.264", size: outputSize)
+        }
+
+        // Snapshot the timeline (checkpoints are value types) so edits during
+        // export don't change the output and the live preview stays untouched.
+        let timelineSnapshot = CameraTimeline(duration: timeline.duration)
+        timelineSnapshot.checkpoints = timeline.checkpoints
+        let duration = timelineSnapshot.duration
+        let totalFrames = max(1, Int((duration * Double(options.fps)).rounded()))
+
+        let renderer = try await OffscreenSceneRenderer(
+            outputSize: outputSize,
+            previewPointSize: previewPoints,
+            inputs: inputs
+        )
+
+        // MARK: Writer setup
+
         try? FileManager.default.removeItem(at: outputURL)
 
         let writer: AVAssetWriter
@@ -167,16 +182,16 @@ actor VideoExporter {
         }
 
         let codec = options.format.codec
-        // ProRes does not use bitrate; use default
         var videoSettings: [String: Any] = [
             AVVideoCodecKey: codec,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height
         ]
         if codec != .proRes422 {
-            let bitRate = options.bitRateMbps.map { Int($0 * 1_000_000) } ?? max(2_000_000, width * height * 4)
+            let bitsPerSecond = options.bitRateMbps.map { Int($0 * 1_000_000) }
+                ?? min(160_000_000, max(8_000_000, Int(Double(width * height) * options.format.autoBitrateBitsPerPixel)))
             videoSettings[AVVideoCompressionPropertiesKey] = [
-                AVVideoAverageBitRateKey: bitRate,
+                AVVideoAverageBitRateKey: bitsPerSecond,
                 AVVideoExpectedSourceFrameRateKey: options.fps
             ]
         }
@@ -184,103 +199,53 @@ actor VideoExporter {
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
         input.expectsMediaDataInRealTime = false
 
-        let attrs: [String: Any] = [
+        let adaptorAttributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height,
-            kCVPixelBufferCGImageCompatibilityKey as String: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+            kCVPixelBufferMetalCompatibilityKey as String: true,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
         ]
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: attrs)
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: adaptorAttributes
+        )
 
         guard writer.canAdd(input) else { throw VideoExportError.writerFailed("Cannot add video input") }
         writer.add(input)
-
-        guard writer.startWriting() else { throw VideoExportError.writerFailed(writer.error?.localizedDescription ?? "startWriting failed") }
+        guard writer.startWriting() else {
+            throw VideoExportError.writerFailed(writer.error?.localizedDescription ?? "startWriting failed")
+        }
         writer.startSession(atSourceTime: .zero)
 
-        // Snapshot timeline — access MainActor-isolated props on MainActor
-        let originalTime = await MainActor.run { timeline.currentTime }
-        let wasPlaying = await MainActor.run { timeline.isPlaying }
-        await MainActor.run { timeline.isPlaying = false }
+        // MARK: Frame loop — fixed timestep, deterministic per frame index
 
-        defer {
-            Task { @MainActor in
-                timeline.seek(to: originalTime)
-                timeline.isPlaying = wasPlaying
-            }
-        }
-
-        // Hybrid Metal compositor: WindowServer capture (correct for RealityKit/CAMetalLayer)
-        // + Metal CIContext scale/render. No 55ms sleep, no CVDisplayLink wait - GPU as fast as it can
-        // after flush. targetScale lets SCScreenshotConfiguration downscale in hardware.
-        let rectInWindow = await MainActor.run { previewView.convert(previewView.bounds, to: nil) }
-        let nativePixels = FrameCapture.nativePixelSize(for: previewView, window: window) ?? nativePreviewSize
-        let targetScale = width > 0 && nativePixels.width > 0 ? CGFloat(width) / nativePixels.width : 1.0
-
-        var frameIndex = 0
-        while frameIndex < totalFrames {
-            if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
-            let t = duration * Double(frameIndex) / Double(totalFrames)
-            let state = await MainActor.run { timeline.evaluatedState(at: t) }
-
-            await MainActor.run {
-                applyPose(state.orbit, state.zoom, state.pan)
-                timeline.seek(to: t)
-                DisplaySync.flushTransactions(for: previewView)
-            }
+        let deltaTime = 1.0 / Double(options.fps)
+        for frameIndex in 0..<totalFrames {
             if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
 
-            // WindowServer capture - captures CAMetalLayer correctly
-            let raw: CGImage
-            do {
-                let captured = try await FrameCapture.capture(window: window, targetScale: targetScale)
-                guard let cropped = FrameCapture.crop(captured, toViewRect: rectInWindow, window: window) else {
-                    throw VideoExportError.noPreview
-                }
-                raw = cropped
-            } catch {
-                throw error
-            }
+            let time = duration * Double(frameIndex) / Double(totalFrames)
+            let state = timelineSnapshot.evaluatedState(at: time)
 
-            // Metal Lanczos scale to exact outputSize if needed (hardware downscale already applied via targetScale)
-            let finalImage: CGImage
-            if raw.width == width && raw.height == height {
-                finalImage = raw
-            } else {
-                if let metalScaled = compositor.scaled(raw, to: outputSize) {
-                    finalImage = metalScaled
-                } else {
-                    guard let scaled = VideoExporter.scaled(raw, to: outputSize) else {
-                        throw VideoExportError.pixelBufferFailed
-                    }
-                    finalImage = scaled
-                }
-            }
+            let pixelBuffer = try await renderer.render(
+                orbit: state.orbit,
+                zoom: state.zoom,
+                pan: state.pan,
+                deltaTime: deltaTime
+            )
 
-            // Wait for writer readiness (non-blocking, 5ms poll matches AVFoundation pattern)
             while !input.isReadyForMoreMediaData {
                 try? await Task.sleep(nanoseconds: 2_000_000)
                 if isCancelled || Task.isCancelled { throw VideoExportError.cancelled }
             }
 
-            // Metal path: allocate buffer via compositor and render via CIContext (zero-copy)
-            guard let buffer = compositor.makePixelBuffer(width: width, height: height) else {
-                throw VideoExportError.pixelBufferFailed
-            }
-            // Single Metal pass: scale+render directly into pixel buffer
-            // If already exact size, just render; else we already scaled above via compositor
-            compositor.render(cgImage: finalImage, to: buffer)
-
             let pts = CMTime(value: CMTimeValue(frameIndex), timescale: CMTimeScale(options.fps))
-            if !adaptor.append(buffer, withPresentationTime: pts) {
-                throw VideoExportError.writerFailed(writer.error?.localizedDescription ?? "append failed at frame \(frameIndex)")
+            if !adaptor.append(pixelBuffer, withPresentationTime: pts) {
+                throw VideoExportError.writerFailed(
+                    writer.error?.localizedDescription ?? "append failed at frame \(frameIndex)")
             }
 
-            let progress = Double(frameIndex + 1) / Double(totalFrames)
-            await onProgress(progress)
-
-            frameIndex += 1
+            onProgress(Double(frameIndex + 1) / Double(totalFrames))
         }
 
         input.markAsFinished()
@@ -291,49 +256,5 @@ actor VideoExporter {
             throw VideoExportError.writerFailed(error.localizedDescription)
         }
         if isCancelled { throw VideoExportError.cancelled }
-    }
-
-    // MARK: - Helpers
-
-    static func makePixelBuffer(from image: CGImage, width: Int, height: Int) -> CVPixelBuffer? {
-        var buffer: CVPixelBuffer?
-        let attrs: [String: Any] = [
-            kCVPixelBufferCGImageCompatibilityKey as String: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
-        ]
-        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrs as CFDictionary, &buffer)
-        guard status == kCVReturnSuccess, let pixelBuffer = buffer else { return nil }
-        CVPixelBufferLockBaseAddress(pixelBuffer, [])
-        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, []) }
-        guard let ctx = CGContext(
-            data: CVPixelBufferGetBaseAddress(pixelBuffer),
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-        ) else { return nil }
-        ctx.interpolationQuality = .high
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return pixelBuffer
-    }
-
-    static func scaled(_ image: CGImage, to size: CGSize) -> CGImage? {
-        let width = Int(size.width)
-        let height = Int(size.height)
-        guard width > 0 && height > 0 else { return nil }
-        guard let ctx = CGContext(
-            data: nil,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpaceCreateDeviceRGB(),
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-        ctx.interpolationQuality = .high
-        ctx.draw(image, in: CGRect(origin: .zero, size: size))
-        return ctx.makeImage()
     }
 }
