@@ -17,6 +17,7 @@ import Observation
 final class YomMockStore {
     // MARK: - Savable state (mirrors ContentView @State)
 
+    var device: Device = .iPhone
     var selectedColor: iPhoneColor = .black
     var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     var background: StudioBackground = .white
@@ -95,6 +96,7 @@ final class YomMockStore {
         }
         let doc = YomMockProjectDocument(
             version: YomMockProjectDocument.currentVersion,
+            deviceRaw: device.rawValue,
             selectedColorRaw: selectedColor.rawValueForProject,
             customColor: ProjectColor(color: customColor),
             backgroundRaw: background.rawValueForProject,
@@ -114,6 +116,7 @@ final class YomMockStore {
         isRestoring = true
         defer { isRestoring = false }
 
+        device = Device(rawValue: doc.deviceRaw ?? "") ?? .iPhone
         selectedColor = iPhoneColor.from(projectRaw: doc.selectedColorRaw)
         if let pc = doc.customColor {
             customColor = pc.color
@@ -203,6 +206,7 @@ final class YomMockStore {
             }
         }
         isRestoring = true
+        device = .iPhone
         selectedColor = .black
         customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
         background = .white
@@ -293,7 +297,7 @@ final class YomMockStore {
             do {
                 let size = VideoExportOptions(resolution: .p2160).outputSize(
                     previewPoints: previewPoints, backingScale: 1)
-                let key = "\(Int(size.width))x\(Int(size.height))"
+                let key = "\(device.rawValue)-\(Int(size.width))x\(Int(size.height))"
                 if stillRenderer == nil || stillRendererKey != key {
                     stillRenderer = try await OffscreenSceneRenderer(
                         outputSize: size, previewPointSize: previewPoints, inputs: inputs)
@@ -323,6 +327,7 @@ final class YomMockStore {
         let bottom = NSColor(gradient.bottom).usingColorSpace(.sRGB) ?? .white
         let displayCG = displayImage.flatMap { try? PhoneStyling.sRGBCGImage(from: $0) }
         return OffscreenSceneRenderer.Inputs(
+            device: device,
             finish: selectedColor.finish(custom: customColor),
             displayImage: displayCG,
             backgroundTop: top,

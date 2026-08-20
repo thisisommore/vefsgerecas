@@ -10,6 +10,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct InspectorPanel: View {
+    @Binding var device: Device
     @Binding var selectedColor: iPhoneColor
     @Binding var customColor: Color
     @Binding var background: StudioBackground
@@ -24,6 +25,10 @@ struct InspectorPanel: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    DeviceInspectorPanel(device: $device)
+
+                    Divider()
+
                     PhoneInspectorPanel(
                         selectedColor: $selectedColor,
                         customColor: $customColor
@@ -52,6 +57,26 @@ struct InspectorPanel: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .overlay(alignment: .leading) {
             Divider()
+        }
+    }
+}
+
+// MARK: - Device
+
+private struct DeviceInspectorPanel: View {
+    @Binding var device: Device
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorHeader(title: "DEVICE", subtitle: "Model")
+
+            Picker("Model", selection: $device) {
+                ForEach(Device.allCases) { device in
+                    Text(device.name).tag(device)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
         }
     }
 }

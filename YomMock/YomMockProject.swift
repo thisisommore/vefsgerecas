@@ -115,6 +115,7 @@ struct ProjectCheckpoint: Codable, Equatable {
 /// Serializable edit document stored as `project.json` inside a `.yommock` package.
 struct YomMockProjectDocument: Codable, Equatable {
     var version: Int
+    var deviceRaw: String? // Device rawValue; nil in pre-device projects = iPhone
     var selectedColorRaw: String // iPhoneColor name
     var customColor: ProjectColor?
     var backgroundRaw: String // StudioBackground name
@@ -127,10 +128,11 @@ struct YomMockProjectDocument: Codable, Equatable {
     var displayRelativePath: String? // e.g. "assets/display.png"
     var displayFileName: String?
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.version == rhs.version
+            && lhs.deviceRaw == rhs.deviceRaw
             && lhs.selectedColorRaw == rhs.selectedColorRaw
             && lhs.customColor == rhs.customColor
             && lhs.backgroundRaw == rhs.backgroundRaw

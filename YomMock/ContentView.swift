@@ -24,12 +24,42 @@ struct ContentView: View {
     @EnvironmentObject private var unsavedGuard: UnsavedChangesGuard
 
     var body: some View {
+        mainContent
+        .task {
+            if store.displayImage == nil {
+                loadDefaultDisplayImage(for: store.device)
+            }
+            store.frameCaptureViewProvider = { [previewViewBox] in previewViewBox.view }
+            updateWindowTitle()
+        }
+        .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
+        .onChange(of: store.projectURL) { _, _ in
+            updateWindowTitle()
+            applyEvaluatedPose()
+            refreshMaterials()
+        }
+        .onAppear { updateWindowTitle() }
+        .alert("Error", isPresented: Binding(get: { store.projectError != nil }, set: { if !$0 { store.handleSaveErrorDismiss() } })) {
+            Button("OK") { store.handleSaveErrorDismiss() }
+        } message: {
+            Text(store.projectError ?? "")
+        }
+        .overlay(alignment: .bottom) { exportSuccessOverlay }
+        .overlay(alignment: .bottom) { videoExportOverlay }
+        .overlay { videoFreezeOverlay }
+        .sheet(isPresented: $store.showVideoOptions) {
+            VideoExportOptionsView(store: store)
+        }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 0) {
                 preview
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 InspectorPanel(
+                    device: $store.device,
                     selectedColor: $store.selectedColor,
                     customColor: $store.customColor,
                     background: $store.background,
@@ -52,6 +82,14 @@ struct ContentView: View {
             .frame(height: 148)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: store.device) { oldDevice, newDevice in
+            // Swap the bundled default screenshot when the user hasn't
+            // overridden it; keep user-provided images across device switches.
+            if store.displayFileName == oldDevice.defaultDisplayImageName {
+                loadDefaultDisplayImage(for: newDevice)
+            }
+            store.markDirty()
+        }
         .onChange(of: store.selectedColor) { _, _ in
             refreshMaterials()
             store.markDirty()
@@ -82,34 +120,6 @@ struct ContentView: View {
         .onChange(of: store.timeline.duration) { _, _ in
             store.markDirty()
         }
-        .task {
-            if store.displayImage == nil,
-               let url = Bundle.main.url(forResource: "iphone_home", withExtension: "jpg"),
-               let img = NSImage(contentsOf: url) {
-                store.displayFileName = "iphone_home.jpg"
-                store.displayImage = img
-            }
-            store.frameCaptureViewProvider = { [previewViewBox] in previewViewBox.view }
-            updateWindowTitle()
-        }
-        .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
-        .onChange(of: store.projectURL) { _, _ in
-            updateWindowTitle()
-            applyEvaluatedPose()
-            refreshMaterials()
-        }
-        .onAppear { updateWindowTitle() }
-        .alert("Error", isPresented: Binding(get: { store.projectError != nil }, set: { if !$0 { store.handleSaveErrorDismiss() } })) {
-            Button("OK") { store.handleSaveErrorDismiss() }
-        } message: {
-            Text(store.projectError ?? "")
-        }
-        .overlay(alignment: .bottom) { exportSuccessOverlay }
-        .overlay(alignment: .bottom) { videoExportOverlay }
-        .overlay { videoFreezeOverlay }
-        .sheet(isPresented: $store.showVideoOptions) {
-            VideoExportOptionsView(store: store)
-        }
     }
 
     private func updateWindowTitle() {
@@ -119,6 +129,19 @@ struct ContentView: View {
                 window.isDocumentEdited = store.isDirty
             }
         }
+    }
+
+    /// Loads the bundled default screenshot for a device (iphone_home.jpg /
+    /// mac_home.jpg) — used at launch and when switching devices before the
+    /// user has supplied their own image.
+    private func loadDefaultDisplayImage(for device: Device) {
+        let name = device.defaultDisplayImageName
+        let url = Bundle.main.url(forResource: name, withExtension: nil)
+            ?? Bundle.main.url(
+                forResource: name.replacingOccurrences(of: ".jpg", with: ""), withExtension: "jpg")
+        guard let url, let img = NSImage(contentsOf: url) else { return }
+        store.displayFileName = name
+        store.displayImage = img
     }
 
     @ViewBuilder
@@ -184,19 +207,26 @@ struct ContentView: View {
                 cameraReady = true
                 content.add(camera)
 
-                let url = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz")!
+                guard let url = Bundle.main.url(
+                    forResource: store.device.modelResource,
+                    withExtension: store.device.modelExtension
+                ) else {
+                    status = "\(store.device.modelResource).\(store.device.modelExtension) missing from bundle."
+                    return
+                }
 
                 do {
-                    let phone = try await Entity(contentsOf: url)
-                    phone.name = "iPhone"
-                    scene.phone = phone
-                    scene.framePhone(phone, targetSize: 0.05)
+                    let model = try await Entity(contentsOf: url)
+                    model.name = store.device.modelResource
+                    scene.phone = model
+                    scene.framePhone(model, targetSize: store.device.frameTargetSize)
                     PhoneStyling.applyMaterials(
-                        to: phone,
+                        to: model,
+                        device: store.device,
                         finish: store.selectedColor.finish(custom: store.customColor),
                         displayTexture: displayTexture
                     )
-                    PhoneStyling.applyGroundingShadows(to: phone)
+                    PhoneStyling.applyGroundingShadows(to: model)
 
                     let ibl = Entity()
                     ibl.name = "IBL"
@@ -207,9 +237,9 @@ struct ContentView: View {
                         )
                     }
                     content.add(ibl)
-                    applyIBLReceiver(to: phone, ibl: ibl)
+                    applyIBLReceiver(to: model, ibl: ibl)
 
-                    content.add(phone)
+                    content.add(model)
                     // Don't set cameraTarget — orbit controls use the target
                     // bounds to pick a tight starting distance.
                     let initial = store.timeline.evaluatedState(at: 0)
@@ -228,6 +258,8 @@ struct ContentView: View {
                 holdStudioFramingIfNeeded()
             }
             .realityViewCameraControls(.none)
+            // Rebuild the whole scene when the device model changes.
+            .id(store.device)
             .background {
                 ZStack {
                     ScrollZoomCatcher { event in
@@ -370,9 +402,10 @@ struct ContentView: View {
     }
 
     private func refreshMaterials() {
-        guard let phone = scene.phone else { return }
+        guard let model = scene.phone else { return }
         PhoneStyling.applyMaterials(
-            to: phone,
+            to: model,
+            device: store.device,
             finish: store.selectedColor.finish(custom: store.customColor),
             displayTexture: displayTexture
         )

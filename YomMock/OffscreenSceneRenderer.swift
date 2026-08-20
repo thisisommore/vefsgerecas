@@ -76,6 +76,7 @@ final class OffscreenSceneRenderer {
     /// Immutable inputs snapshot for one render session. Colors are resolved
     /// sRGB so output matches the preview regardless of appearance changes.
     struct Inputs {
+        var device: Device = .iPhone
         var finish: PhoneFinish
         var displayImage: CGImage?
         var backgroundTop: NSColor
@@ -96,6 +97,7 @@ final class OffscreenSceneRenderer {
     // RealityKit
     private var realityRenderer: RealityRenderer
     private let scene = PhoneScene()
+    private var deviceKind: Device = .iPhone
     private var displayTexture: TextureResource?
     private var lastDisplayImage: CGImage?
 
@@ -179,14 +181,19 @@ final class OffscreenSceneRenderer {
         let renderer = try RealityRenderer()
         renderer.cameraSettings.colorBackground = .outputTexture()
         self.realityRenderer = renderer
+        self.deviceKind = inputs.device
 
-        guard let bundleURL = Bundle.main.url(forResource: "iPhone17", withExtension: "usdz") else {
-            throw OffscreenRenderError.renderFailed("iPhone17.usdz missing from bundle")
+        guard let bundleURL = Bundle.main.url(
+            forResource: inputs.device.modelResource,
+            withExtension: inputs.device.modelExtension
+        ) else {
+            throw OffscreenRenderError.renderFailed(
+                "\(inputs.device.modelResource).\(inputs.device.modelExtension) missing from bundle")
         }
-        let phone = try await Entity(contentsOf: bundleURL)
-        phone.name = "iPhone"
-        scene.phone = phone
-        scene.framePhone(phone, targetSize: 0.05)
+        let model = try await Entity(contentsOf: bundleURL)
+        model.name = inputs.device.modelResource
+        scene.phone = model
+        scene.framePhone(model, targetSize: inputs.device.frameTargetSize)
 
         if let cg = inputs.displayImage {
             displayTexture = try? await TextureResource(
@@ -200,9 +207,9 @@ final class OffscreenSceneRenderer {
             )
             lastDisplayImage = cg
         }
-        PhoneStyling.applyMaterials(to: phone, finish: inputs.finish, displayTexture: displayTexture)
-        PhoneStyling.applyGroundingShadows(to: phone)
-        renderer.entities.append(phone)
+        PhoneStyling.applyMaterials(to: model, device: inputs.device, finish: inputs.finish, displayTexture: displayTexture)
+        PhoneStyling.applyGroundingShadows(to: model)
+        renderer.entities.append(model)
 
         let camera = PerspectiveCamera()
         camera.name = "ExportCamera"
@@ -221,7 +228,9 @@ final class OffscreenSceneRenderer {
     // MARK: - Updates (cheap — used by still-frame export between renders)
 
     /// Re-applies finish / display image / backdrop colors. Recreates the
-    /// display texture only when the image actually changed.
+    /// display texture only when the image actually changed. The device is
+    /// fixed per renderer instance — callers recreate the renderer when it
+    /// changes (model load is async and expensive).
     func update(inputs: Inputs) async {
         if let cg = inputs.displayImage, cg !== lastDisplayImage {
             displayTexture = try? await TextureResource(
@@ -238,8 +247,8 @@ final class OffscreenSceneRenderer {
             displayTexture = nil
             lastDisplayImage = nil
         }
-        if let phone = scene.phone {
-            PhoneStyling.applyMaterials(to: phone, finish: inputs.finish, displayTexture: displayTexture)
+        if let model = scene.phone {
+            PhoneStyling.applyMaterials(to: model, device: deviceKind, finish: inputs.finish, displayTexture: displayTexture)
         }
         gradientImage = Self.makeGradient(
             top: inputs.backgroundTop,

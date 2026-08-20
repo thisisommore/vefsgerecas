@@ -16,15 +16,17 @@ import simd
 
 struct OffscreenRenderTests {
 
-    private func makeInputs(withDisplay: Bool) -> OffscreenSceneRenderer.Inputs {
+    private func makeInputs(device: Device = .iPhone, withDisplay: Bool) -> OffscreenSceneRenderer.Inputs {
         var displayCG: CGImage?
+        let name = device.defaultDisplayImageName
         if withDisplay,
-           let url = Bundle.main.url(forResource: "iphone_home", withExtension: "jpg"),
+           let url = Bundle.main.url(forResource: name, withExtension: nil),
            let img = NSImage(contentsOf: url) {
             displayCG = try? PhoneStyling.sRGBCGImage(from: img)
         }
         let gradient = StudioBackground.white.gradient(custom: .white)
         return OffscreenSceneRenderer.Inputs(
+            device: device,
             finish: iPhoneColor.mistBlue.finish(custom: .white),
             displayImage: displayCG,
             backgroundTop: NSColor(gradient.top),
@@ -141,6 +143,25 @@ struct OffscreenRenderTests {
         let imgA = try #require(withImage.makeCGImage(from: a))
         let imgB = try #require(withoutImage.makeCGImage(from: b))
         #expect(meanDifference(imgA, imgB) > 0.5, "Display screenshot should change screen pixels")
+    }
+
+    @Test @MainActor
+    func rendersMacBookFrameWithDefaultScreenshot() async throws {
+        let size = CGSize(width: 1920, height: 1080)
+        let points = CGSize(width: 960, height: 540)
+        let withImage = try await OffscreenSceneRenderer(
+            outputSize: size, previewPointSize: points, inputs: makeInputs(device: .macBookPro, withDisplay: true))
+        let withoutImage = try await OffscreenSceneRenderer(
+            outputSize: size, previewPointSize: points, inputs: makeInputs(device: .macBookPro, withDisplay: false))
+        // Front-facing pose so the laptop screen faces the camera.
+        let pose = OrbitPose(yaw: 0.0, pitch: 0.15, radius: 4.2)
+        let a = try await withImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
+        let b = try await withoutImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
+        let imgA = try #require(withImage.makeCGImage(from: a))
+        let imgB = try #require(withoutImage.makeCGImage(from: b))
+        #expect(meanDifference(imgA, imgB) > 0.5, "MacBook screen should show the screenshot")
+        let url = try savePNG(imgA, name: "yommock_offscreen_macbook")
+        print("wrote \(url.path)")
     }
 
     @Test @MainActor

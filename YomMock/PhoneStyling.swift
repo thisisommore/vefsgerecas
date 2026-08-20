@@ -2,7 +2,7 @@
 //  PhoneStyling.swift
 //  YomMock
 //
-//  Shared phone materials / shadows / image conversion used by BOTH the
+//  Shared device materials / shadows / image conversion used by BOTH the
 //  live RealityView preview and the offline RealityRenderer export path,
 //  so exported frames match the preview exactly.
 //
@@ -15,14 +15,14 @@ enum PhoneStyling {
 
     // MARK: - Materials
 
-    static func applyMaterials(to entity: Entity, finish: PhoneFinish, displayTexture: TextureResource?) {
+    static func applyMaterials(to entity: Entity, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?) {
         if var model = entity.components[ModelComponent.self] {
-            let material = material(for: entity.name, finish: finish, displayTexture: displayTexture)
+            let material = material(for: entity.name, device: device, finish: finish, displayTexture: displayTexture)
             model.materials = Array(repeating: material, count: max(model.materials.count, 1))
             entity.components.set(model)
         }
         for child in entity.children {
-            applyMaterials(to: child, finish: finish, displayTexture: displayTexture)
+            applyMaterials(to: child, device: device, finish: finish, displayTexture: displayTexture)
         }
     }
 
@@ -36,7 +36,112 @@ enum PhoneStyling {
         }
     }
 
-    static func material(for name: String, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+    static func material(for name: String, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+        switch device {
+        case .iPhone:
+            return phoneMaterial(for: name, finish: finish, displayTexture: displayTexture)
+        case .macBookPro:
+            return macMaterial(for: name, finish: finish, displayTexture: displayTexture)
+        }
+    }
+
+    /// MacBook Pro materials, keyed by the semantic mesh names baked into
+    /// MacBookPro.usdc at conversion time (Base, Lid, Screen, Bezel, Keys…).
+    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+        switch name.lowercased() {
+        case "screen":
+            if let displayTexture {
+                return screenMaterial(with: displayTexture)
+            }
+            // Powered-off LCD.
+            return pbr(
+                color: NSColor(calibratedWhite: 0.02, alpha: 1),
+                metallic: 0,
+                roughness: 0.05,
+                specular: 1,
+                clearcoat: 1,
+                clearcoatRoughness: 0.02
+            )
+        case "bezel", "bezelchin":
+            return pbr(
+                color: NSColor(calibratedWhite: 0.02, alpha: 1),
+                metallic: 0.1,
+                roughness: 0.25,
+                specular: 0.6
+            )
+        case "keys":
+            return pbr(
+                color: NSColor(calibratedWhite: 0.06, alpha: 1),
+                metallic: 0,
+                roughness: 0.5,
+                specular: 0.3
+            )
+        case "keyboarddetail":
+            // Keycap legends — light like backlit glyphs.
+            return pbr(
+                color: NSColor(calibratedWhite: 0.75, alpha: 1),
+                metallic: 0,
+                roughness: 0.5,
+                specular: 0.3
+            )
+        case "lidinner":
+            // Full-face glass panel over the Screen mesh. Transparent when a
+            // screenshot is active, dark glass otherwise (like the iPhone's
+            // cover glass over the textured screen plane).
+            if displayTexture != nil {
+                var material = PhysicallyBasedMaterial()
+                material.baseColor = .init(tint: NSColor(white: 1, alpha: 0))
+                material.metallic = .init(floatLiteral: 0)
+                material.roughness = .init(floatLiteral: 0.02)
+                material.specular = .init(floatLiteral: 1)
+                material.clearcoat = .init(floatLiteral: 1)
+                material.clearcoatRoughness = .init(floatLiteral: 0.02)
+                material.blending = .transparent(opacity: 0.0)
+                return material
+            }
+            return pbr(
+                color: NSColor(calibratedRed: 0.03, green: 0.032, blue: 0.036, alpha: 1),
+                metallic: 0,
+                roughness: 0.028,
+                specular: 1,
+                clearcoat: 1,
+                clearcoatRoughness: 0.02
+            )
+        case "hingevent", "port", "deckstrip", "baseinner":
+            return pbr(
+                color: NSColor(calibratedWhite: 0.03, alpha: 1),
+                metallic: 0.1,
+                roughness: 0.45,
+                specular: 0.3
+            )
+        case "logo":
+            return pbr(
+                color: NSColor(calibratedWhite: 0.8, alpha: 1),
+                metallic: 1,
+                roughness: 0.08,
+                specular: 1
+            )
+        case "feet":
+            return pbr(
+                color: NSColor(calibratedWhite: 0.05, alpha: 1),
+                metallic: 0,
+                roughness: 0.6,
+                specular: 0.2
+            )
+        default:
+            // Base, Lid, KeyboardDeck, BottomPlate — anodized aluminum,
+            // tinted by the selected finish.
+            return pbr(
+                color: finish.frame,
+                metallic: 0.9,
+                roughness: 0.32,
+                specular: 1,
+                anisotropy: 0.15
+            )
+        }
+    }
+
+    static func phoneMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
         let key = name.lowercased()
 
         if key.contains("screen") && !key.contains("glass") && !key.contains("edge") {
