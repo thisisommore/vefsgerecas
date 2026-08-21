@@ -227,13 +227,7 @@ final class VideoExporter {
             let time = duration * Double(frameIndex) / Double(totalFrames)
             let state = timelineSnapshot.evaluatedState(at: time)
 
-            let pixelBuffer = try await renderer.render(
-                orbit: state.orbit,
-                zoom: state.zoom,
-                pan: state.pan,
-                lidAngle: state.lidAngle,
-                deltaTime: deltaTime
-            )
+            let pixelBuffer = try await renderer.render(state: state, deltaTime: deltaTime)
 
             while !input.isReadyForMoreMediaData {
                 try? await Task.sleep(nanoseconds: 2_000_000)

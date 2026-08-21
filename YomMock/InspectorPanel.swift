@@ -10,14 +10,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct InspectorPanel: View {
-    @Binding var device: Device
-    @Binding var lidAngle: Float
-    @Binding var selectedColor: iPhoneColor
-    @Binding var customColor: Color
-    @Binding var background: StudioBackground
-    @Binding var customBackground: Color
-    @Binding var displayImage: NSImage?
-    @Binding var displayFileName: String?
+    @Bindable var store: YomMockStore
     @Binding var displayStatus: String?
 
     var body: some View {
@@ -26,34 +19,34 @@ struct InspectorPanel: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    DeviceInspectorPanel(device: $device)
+                    DeviceInspectorPanel(device: $store.device)
 
-                    if device == .macBookPro {
+                    if store.device == .macBookPro {
                         Divider()
 
-                        LidInspectorPanel(lidAngle: $lidAngle)
+                        LidInspectorPanel(lidAngle: $store.lidAngle)
                     }
 
                     Divider()
 
                     PhoneInspectorPanel(
-                        selectedColor: $selectedColor,
-                        customColor: $customColor
+                        selectedColor: $store.selectedColor,
+                        customColor: $store.customColor
                     )
 
                     Divider()
 
                     DisplayInspectorPanel(
-                        displayImage: $displayImage,
-                        displayFileName: $displayFileName,
+                        displayImage: $store.displayImage,
+                        displayFileName: $store.displayFileName,
                         displayStatus: $displayStatus
                     )
 
                     Divider()
 
                     BackdropInspectorPanel(
-                        background: $background,
-                        customBackground: $customBackground
+                        background: $store.background,
+                        customBackground: $store.customBackground
                     )
                 }
                 .padding(12)

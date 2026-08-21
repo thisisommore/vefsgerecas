@@ -202,7 +202,7 @@ final class OffscreenSceneRenderer {
         scene.framePhone(model, targetSize: inputs.device.frameTargetSize)
 
         if let cg = inputs.displayImage {
-            displayTexture = try? await TextureResource(
+            displayTexture = try await TextureResource(
                 image: cg,
                 withName: "DisplayScreenshot-Offscreen",
                 options: TextureResource.CreateOptions(
@@ -217,7 +217,10 @@ final class OffscreenSceneRenderer {
             displayAverageColor = nil
         }
         PhoneStyling.liftKeyboardLegends(on: model)
-        PhoneStyling.applyMaterials(to: model, device: inputs.device, finish: inputs.finish, displayTexture: displayTexture, lidGlow: lidRig?.glowFactor ?? 0, displayAverageColor: displayAverageColor)
+        PhoneStyling.applyMaterials(to: model, styling: DeviceStyling(
+            device: inputs.device, finish: inputs.finish,
+            displayTexture: displayTexture, lidGlow: lidRig?.glowFactor ?? 0,
+            displayAverageColor: displayAverageColor))
         lastAppliedColor = displayAverageColor
         PhoneStyling.applyGroundingShadows(to: model)
         renderer.entities.append(model)
@@ -237,10 +240,9 @@ final class OffscreenSceneRenderer {
         renderer.activeCamera = camera
 
         // Same studio IBL as the preview (intensityExponent -3), scene-wide.
-        if let environment = try? await StudioEnvironment.resource() {
-            renderer.lighting.resource = environment
-            renderer.lighting.intensityExponent = -3.0
-        }
+        let environment = try await StudioEnvironment.resource()
+        renderer.lighting.resource = environment
+        renderer.lighting.intensityExponent = -3.0
     }
 
     // MARK: - Updates (cheap — used by still-frame export between renders)
@@ -249,9 +251,9 @@ final class OffscreenSceneRenderer {
     /// display texture only when the image actually changed. The device is
     /// fixed per renderer instance — callers recreate the renderer when it
     /// changes (model load is async and expensive).
-    func update(inputs: Inputs) async {
+    func update(inputs: Inputs) async throws {
         if let cg = inputs.displayImage, cg !== lastDisplayImage {
-            displayTexture = try? await TextureResource(
+            displayTexture = try await TextureResource(
                 image: cg,
                 withName: "DisplayScreenshot-Offscreen",
                 options: TextureResource.CreateOptions(
@@ -271,7 +273,10 @@ final class OffscreenSceneRenderer {
             let glow = lidRig?.glowFactor ?? 0
             let colorChanged = displayAverageColor != lastAppliedColor
             if abs(glow - lastAppliedGlow) > 0.004 || colorChanged {
-                PhoneStyling.applyMaterials(to: model, device: deviceKind, finish: inputs.finish, displayTexture: displayTexture, lidGlow: glow, displayAverageColor: displayAverageColor)
+                PhoneStyling.applyMaterials(to: model, styling: DeviceStyling(
+                    device: deviceKind, finish: inputs.finish,
+                    displayTexture: displayTexture, lidGlow: glow,
+                    displayAverageColor: displayAverageColor))
                 lastAppliedGlow = glow
                 lastAppliedColor = displayAverageColor
             }
@@ -292,7 +297,7 @@ final class OffscreenSceneRenderer {
     /// Renders one frame and returns the pixel buffer containing it.
     /// The buffer stays valid until the caller releases it (AVAssetWriter
     /// retains it until encoding completes); the pool recycles buffers.
-    func render(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>, lidAngle: Float = MacBookLidRig.defaultOpenAngle, deltaTime: TimeInterval) async throws -> CVPixelBuffer {
+    func render(state: TimelineState, deltaTime: TimeInterval) async throws -> CVPixelBuffer {
         guard let pool = pixelBufferPool, let textureCache else {
             throw OffscreenRenderError.pixelBufferFailed
         }
@@ -342,15 +347,15 @@ final class OffscreenSceneRenderer {
         }
 
         // 2) Camera pose + lid on the offscreen scene, then render over the gradient.
-        scene.apply(orbit: orbit, zoom: zoom, pan: pan)
+        scene.apply(orbit: state.orbit, zoom: state.zoom, pan: state.pan)
         if let lidRig {
-            lidRig.setLidAngle(lidAngle)
+            lidRig.setLidAngle(state.lidAngle)
             // Screen-spill emissive follows the lid — re-apply when it moved.
             let glow = lidRig.glowFactor
             if abs(glow - lastAppliedGlow) > 0.004, let model = scene.phone, let finish = currentFinish {
-                PhoneStyling.applyMaterials(
-                    to: model, device: deviceKind, finish: finish,
-                    displayTexture: displayTexture, lidGlow: glow, displayAverageColor: displayAverageColor)
+                PhoneStyling.applyMaterials(to: model, styling: DeviceStyling(
+                    device: deviceKind, finish: finish,
+                    displayTexture: displayTexture, lidGlow: glow, displayAverageColor: displayAverageColor))
                 lastAppliedGlow = glow
             }
         }

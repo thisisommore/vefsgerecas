@@ -83,7 +83,7 @@ struct OffscreenRenderTests {
         )
         let state = (OrbitPose.default, Float(1.45), SIMD3<Float>.zero)
         let buffer = try await renderer.render(
-            orbit: state.0, zoom: state.1, pan: state.2, deltaTime: 1.0 / 30)
+            state: TimelineState(orbit: state.0, zoom: state.1, pan: state.2), deltaTime: 1.0 / 30)
         #expect(CVPixelBufferGetWidth(buffer) == 3840)
         #expect(CVPixelBufferGetHeight(buffer) == 2160)
 
@@ -117,8 +117,7 @@ struct OffscreenRenderTests {
         var images: [CGImage] = []
         for (index, t) in times.enumerated() {
             let state = timeline.evaluatedState(at: t)
-            let buffer = try await renderer.render(
-                orbit: state.orbit, zoom: state.zoom, pan: state.pan, deltaTime: 1.0 / 30)
+            let buffer = try await renderer.render(state: state, deltaTime: 1.0 / 30)
             let image = try #require(renderer.makeCGImage(from: buffer))
             images.append(image)
             let url = try savePNG(image, name: "yommock_offscreen_1080p_t\(index)")
@@ -139,8 +138,8 @@ struct OffscreenRenderTests {
             outputSize: size, previewPointSize: points, inputs: makeInputs(withDisplay: false))
         // Front-facing pose so the screen faces the camera.
         let pose = OrbitPose(yaw: 0.0, pitch: 0.15, radius: 4.2)
-        let a = try await withImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
-        let b = try await withoutImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
+        let a = try await withImage.render(state: TimelineState(orbit: pose, zoom: 1.45), deltaTime: 1.0 / 30)
+        let b = try await withoutImage.render(state: TimelineState(orbit: pose, zoom: 1.45), deltaTime: 1.0 / 30)
         let imgA = try #require(withImage.makeCGImage(from: a))
         let imgB = try #require(withoutImage.makeCGImage(from: b))
         #expect(meanDifference(imgA, imgB) > 0.5, "Display screenshot should change screen pixels")
@@ -158,7 +157,7 @@ struct OffscreenRenderTests {
 
         func dump(_ tag: String, _ pose: OrbitPose, _ angle: Float) async throws {
             let buffer = try await renderer.render(
-                orbit: pose, zoom: 1.45, pan: .zero, lidAngle: angle, deltaTime: 1.0 / 30)
+                state: TimelineState(orbit: pose, zoom: 1.45, lidAngle: angle), deltaTime: 1.0 / 30)
             let img = try #require(renderer.makeCGImage(from: buffer))
             let small = NSImage(size: NSSize(width: 480, height: 270))
             small.lockFocus()
@@ -189,8 +188,8 @@ struct OffscreenRenderTests {
             outputSize: size, previewPointSize: points, inputs: makeInputs(device: .macBookPro, withDisplay: false))
         // Front-facing pose so the laptop screen faces the camera.
         let pose = OrbitPose(yaw: 0.0, pitch: 0.15, radius: 4.2)
-        let a = try await withImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
-        let b = try await withoutImage.render(orbit: pose, zoom: 1.45, pan: .zero, deltaTime: 1.0 / 30)
+        let a = try await withImage.render(state: TimelineState(orbit: pose, zoom: 1.45), deltaTime: 1.0 / 30)
+        let b = try await withoutImage.render(state: TimelineState(orbit: pose, zoom: 1.45), deltaTime: 1.0 / 30)
         let imgA = try #require(withImage.makeCGImage(from: a))
         let imgB = try #require(withoutImage.makeCGImage(from: b))
         #expect(meanDifference(imgA, imgB) > 0.5, "MacBook screen should show the screenshot")
@@ -209,7 +208,7 @@ struct OffscreenRenderTests {
         var images: [CGImage] = []
         for _ in 0..<2 {
             let buffer = try await renderer.render(
-                orbit: pose, zoom: 1.2, pan: .zero, deltaTime: 1.0 / 30)
+                state: TimelineState(orbit: pose, zoom: 1.2), deltaTime: 1.0 / 30)
             images.append(try #require(renderer.makeCGImage(from: buffer)))
         }
         let diff = meanDifference(images[0], images[1])

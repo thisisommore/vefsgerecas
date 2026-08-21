@@ -7,6 +7,13 @@ import Foundation
 import Observation
 import simd
 
+nonisolated struct TimelineState: Equatable, Sendable {
+    var orbit: OrbitPose = .default
+    var zoom: Float = 1
+    var pan: SIMD3<Float> = .zero
+    var lidAngle: Float = MacBookLidRig.defaultOpenAngle
+}
+
 nonisolated struct OrbitPose: Equatable, Sendable {
     var yaw: Float
     var pitch: Float
@@ -242,22 +249,22 @@ final class CameraTimeline {
     }
 
     /// Interpolated orbit + zoom + pan + lid at a time, eased between adjacent checkpoints.
-    func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>, lidAngle: Float) {
+    func evaluatedState(at time: TimeInterval? = nil) -> TimelineState {
         let t = time ?? currentTime
         let keys = checkpoints.sorted { $0.time < $1.time }
         guard let first = keys.first else {
-            return (.default, 1, .zero, MacBookLidRig.defaultOpenAngle)
+            return TimelineState()
         }
         // Before/beyond the outer keyframes, hold the nearest value.
-        if t <= first.time { return (first.pose, first.zoom, first.pan, first.lidAngle) }
-        guard let last = keys.last else { return (first.pose, first.zoom, first.pan, first.lidAngle) }
-        if t >= last.time { return (last.pose, last.zoom, last.pan, last.lidAngle) }
+        if t <= first.time { return TimelineState(orbit: first.pose, zoom: first.zoom, pan: first.pan, lidAngle: first.lidAngle) }
+        guard let last = keys.last else { return TimelineState(orbit: first.pose, zoom: first.zoom, pan: first.pan, lidAngle: first.lidAngle) }
+        if t >= last.time { return TimelineState(orbit: last.pose, zoom: last.zoom, pan: last.pan, lidAngle: last.lidAngle) }
 
         guard
             let nextIndex = keys.firstIndex(where: { $0.time >= t }),
             nextIndex > 0
         else {
-            return (last.pose, last.zoom, last.pan, last.lidAngle)
+            return TimelineState(orbit: last.pose, zoom: last.zoom, pan: last.pan, lidAngle: last.lidAngle)
         }
 
         let start = keys[nextIndex - 1]
@@ -266,11 +273,11 @@ final class CameraTimeline {
         let raw = span > 0 ? (t - start.time) / span : 1
         let eased = Self.easeInOut(Float(raw))
         let pan = start.pan + (end.pan - start.pan) * eased
-        return (
-            start.pose.interpolated(to: end.pose, t: eased),
-            start.zoom + (end.zoom - start.zoom) * eased,
-            pan,
-            start.lidAngle + (end.lidAngle - start.lidAngle) * eased
+        return TimelineState(
+            orbit: start.pose.interpolated(to: end.pose, t: eased),
+            zoom: start.zoom + (end.zoom - start.zoom) * eased,
+            pan: pan,
+            lidAngle: start.lidAngle + (end.lidAngle - start.lidAngle) * eased
         )
     }
 

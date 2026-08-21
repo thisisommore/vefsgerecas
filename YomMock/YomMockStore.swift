@@ -307,11 +307,10 @@ final class YomMockStore {
                         outputSize: size, previewPointSize: previewPoints, inputs: inputs)
                     stillRendererKey = key
                 } else if let stillRenderer {
-                    await stillRenderer.update(inputs: inputs)
+                    try await stillRenderer.update(inputs: inputs)
                 }
                 guard let renderer = stillRenderer else { return }
-                let buffer = try await renderer.render(
-                    orbit: state.orbit, zoom: state.zoom, pan: state.pan, lidAngle: state.lidAngle, deltaTime: 1.0 / 30)
+                let buffer = try await renderer.render(state: state, deltaTime: 1.0 / 30)
                 guard let image = renderer.makeCGImage(from: buffer) else {
                     projectError = "Could not create an image from the rendered frame."
                     return

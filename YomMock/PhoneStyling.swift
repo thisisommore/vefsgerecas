@@ -11,18 +11,26 @@ import AppKit
 import RealityKit
 import SwiftUI
 
+struct DeviceStyling {
+    var device: Device
+    var finish: PhoneFinish
+    var displayTexture: TextureResource?
+    var lidGlow: Float
+    var displayAverageColor: NSColor?
+}
+
 enum PhoneStyling {
 
     // MARK: - Materials
 
-    static func applyMaterials(to entity: Entity, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) {
+    static func applyMaterials(to entity: Entity, styling: DeviceStyling) {
         if var model = entity.components[ModelComponent.self] {
-            let material = material(for: entity.name, device: device, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
+            let material = material(for: entity.name, styling: styling)
             model.materials = Array(repeating: material, count: max(model.materials.count, 1))
             entity.components.set(model)
         }
         for child in entity.children {
-            applyMaterials(to: child, device: device, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
+            applyMaterials(to: child, styling: styling)
         }
     }
 
@@ -54,12 +62,12 @@ enum PhoneStyling {
         }
     }
 
-    static func material(for name: String, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) -> any RealityKit.Material {
-        switch device {
+    static func material(for name: String, styling: DeviceStyling) -> any RealityKit.Material {
+        switch styling.device {
         case .iPhone:
-            return phoneMaterial(for: name, finish: finish, displayTexture: displayTexture)
+            return phoneMaterial(for: name, finish: styling.finish, displayTexture: styling.displayTexture)
         case .macBookPro:
-            return macMaterial(for: name, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
+            return macMaterial(for: name, finish: styling.finish, displayTexture: styling.displayTexture, lidGlow: styling.lidGlow, displayAverageColor: styling.displayAverageColor)
         }
     }
 

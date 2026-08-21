@@ -19,7 +19,7 @@ import simd
 final class MacBookLidRig {
     /// As-modeled lid opening in degrees from the deck — the model is
     /// authored fully open; angles below this close the lid.
-    static let defaultOpenAngle: Float = 110
+    nonisolated static let defaultOpenAngle: Float = 110
     static let minOpenAngle: Float = 0
 
     /// Hinge pivot in model space (before scene scaling), along the X axis.
