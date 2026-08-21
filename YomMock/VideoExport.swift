@@ -231,6 +231,7 @@ final class VideoExporter {
                 orbit: state.orbit,
                 zoom: state.zoom,
                 pan: state.pan,
+                lidAngle: state.lidAngle,
                 deltaTime: deltaTime
             )
 

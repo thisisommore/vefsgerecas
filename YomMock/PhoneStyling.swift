@@ -15,14 +15,14 @@ enum PhoneStyling {
 
     // MARK: - Materials
 
-    static func applyMaterials(to entity: Entity, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?) {
+    static func applyMaterials(to entity: Entity, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) {
         if var model = entity.components[ModelComponent.self] {
-            let material = material(for: entity.name, device: device, finish: finish, displayTexture: displayTexture)
+            let material = material(for: entity.name, device: device, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
             model.materials = Array(repeating: material, count: max(model.materials.count, 1))
             entity.components.set(model)
         }
         for child in entity.children {
-            applyMaterials(to: child, device: device, finish: finish, displayTexture: displayTexture)
+            applyMaterials(to: child, device: device, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
         }
     }
 
@@ -36,18 +36,31 @@ enum PhoneStyling {
         }
     }
 
-    static func material(for name: String, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+    static func material(for name: String, device: Device = .iPhone, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) -> any RealityKit.Material {
         switch device {
         case .iPhone:
             return phoneMaterial(for: name, finish: finish, displayTexture: displayTexture)
         case .macBookPro:
-            return macMaterial(for: name, finish: finish, displayTexture: displayTexture)
+            return macMaterial(for: name, finish: finish, displayTexture: displayTexture, lidGlow: lidGlow, displayAverageColor: displayAverageColor)
         }
     }
 
+    /// Emissive strengths for the MacBook screen spill (scaled by lidGlow).
+    /// TEMP: vars for render tuning; make let once tuned.
+    static var macGlowDeckNear: Float = 0.18
+    static var macGlowDeckFar: Float = 0.10
+    static var macGlowKeys: Float = 0.22
+    static var macGlowLegends: Float = 1.2
+    static var macGlowHinge: Float = 0.15
+
     /// MacBook Pro materials, keyed by the semantic mesh names baked into
     /// MacBookPro.usdc at conversion time (Base, Lid, Screen, Bezel, Keys…).
-    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+    /// `lidGlow` adds a cool-white emissive to the deck area, faking the
+    /// screen spill when the lid is partly closed (MacBookLidRig.glowFactor).
+    /// When `displayAverageColor` is provided, the spill is tinted to match
+    /// the screenshot instead of the fixed cool-white.
+    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) -> any RealityKit.Material {
+        let glowColor = displayAverageColor ?? NSColor(calibratedRed: 0.72, green: 0.80, blue: 0.95, alpha: 1)
         switch name.lowercased() {
         case "screen":
             if let displayTexture {
@@ -74,7 +87,9 @@ enum PhoneStyling {
                 color: NSColor(calibratedWhite: 0.06, alpha: 1),
                 metallic: 0,
                 roughness: 0.5,
-                specular: 0.3
+                specular: 0.3,
+                emissive: glowColor,
+                emissiveIntensity: macGlowKeys * lidGlow
             )
         case "keyboarddetail":
             // Keycap legends — light like backlit glyphs.
@@ -82,7 +97,9 @@ enum PhoneStyling {
                 color: NSColor(calibratedWhite: 0.75, alpha: 1),
                 metallic: 0,
                 roughness: 0.5,
-                specular: 0.3
+                specular: 0.3,
+                emissive: glowColor,
+                emissiveIntensity: macGlowLegends * lidGlow
             )
         case "lidinner":
             // Full-face glass panel over the Screen mesh. Transparent when a
@@ -112,7 +129,29 @@ enum PhoneStyling {
                 color: NSColor(calibratedWhite: 0.03, alpha: 1),
                 metallic: 0.1,
                 roughness: 0.45,
-                specular: 0.3
+                specular: 0.3,
+                emissive: glowColor,
+                emissiveIntensity: macGlowHinge * lidGlow
+            )
+        case "keyboarddeck":
+            // Deck + trackpad around the keys — nearest to the screen.
+            return pbr(
+                color: finish.frame,
+                metallic: 0.9,
+                roughness: 0.32,
+                specular: 1,
+                anisotropy: 0.15,
+                emissive: glowColor,
+                emissiveIntensity: macGlowDeckNear * lidGlow
+            )
+        case "lid":
+            // Lid back — faces away from the screen, no spill.
+            return pbr(
+                color: finish.frame,
+                metallic: 0.9,
+                roughness: 0.32,
+                specular: 1,
+                anisotropy: 0.15
             )
         case "logo":
             return pbr(
@@ -129,14 +168,15 @@ enum PhoneStyling {
                 specular: 0.2
             )
         default:
-            // Base, Lid, KeyboardDeck, BottomPlate — anodized aluminum,
-            // tinted by the selected finish.
+            // Base, BottomPlate — far from the screen, faint spill.
             return pbr(
                 color: finish.frame,
                 metallic: 0.9,
                 roughness: 0.32,
                 specular: 1,
-                anisotropy: 0.15
+                anisotropy: 0.15,
+                emissive: glowColor,
+                emissiveIntensity: macGlowDeckFar * lidGlow
             )
         }
     }
@@ -338,6 +378,72 @@ enum PhoneStyling {
                 mipmapsMode: .allocateAndGenerateAll
             )
         )
+    }
+
+    /// Average color of a CGImage by downscaling to 32×32 and averaging pixels.
+    /// Used to tint the MacBook keyboard spill so it matches the screenshot.
+    /// Filters near-white pixels and boosts saturation so light wallpapers still
+    /// read as tinted rather than pure white.
+    static func averageColor(from cgImage: CGImage) -> NSColor? {
+        let sampleSize = 32
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        var rawData = [UInt8](repeating: 0, count: sampleSize * sampleSize * 4)
+        guard let context = CGContext(
+            data: &rawData,
+            width: sampleSize,
+            height: sampleSize,
+            bitsPerComponent: 8,
+            bytesPerRow: sampleSize * 4,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.interpolationQuality = .medium
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleSize, height: sampleSize))
+        var r: UInt64 = 0, g: UInt64 = 0, b: UInt64 = 0, count: UInt64 = 0
+        var rf: UInt64 = 0, gf: UInt64 = 0, bf: UInt64 = 0, countF: UInt64 = 0
+        for i in stride(from: 0, to: rawData.count, by: 4) {
+            let a = rawData[i + 3]
+            guard a > 10 else { continue }
+            let rr = rawData[i], gg = rawData[i+1], bb = rawData[i+2]
+            r += UInt64(rr); g += UInt64(gg); b += UInt64(bb); count += 1
+            // Filter near-white / very low saturation for vibrant average
+            let rfN = CGFloat(rr)/255, gfN = CGFloat(gg)/255, bfN = CGFloat(bb)/255
+            let mx = max(rfN, max(gfN, bfN)), mn = min(rfN, min(gfN, bfN))
+            let delta = mx - mn
+            let s: CGFloat = mx == 0 ? 0 : delta / mx
+            let isWhite = mx > 0.94 && s < 0.12
+            let isVeryLightGray = mx > 0.88 && s < 0.06
+            if !isWhite && !isVeryLightGray {
+                rf += UInt64(rr); gf += UInt64(gg); bf += UInt64(bb); countF += 1
+            }
+        }
+        guard count > 0 else { return nil }
+        // Prefer filtered average when enough colorful pixels remain ( >20% )
+        let useFiltered = countF > count / 5 && countF > 0
+        let fr = useFiltered ? rf : r
+        let fg = useFiltered ? gf : g
+        let fb = useFiltered ? bf : b
+        let fc = useFiltered ? countF : count
+        var color = NSColor(
+            calibratedRed: CGFloat(fr) / CGFloat(fc) / 255.0,
+            green: CGFloat(fg) / CGFloat(fc) / 255.0,
+            blue: CGFloat(fb) / CGFloat(fc) / 255.0,
+            alpha: 1
+        )
+        // Boost saturation / brightness so desaturated wallpapers still tint visibly.
+        if let srgb = color.usingColorSpace(.sRGB) {
+            var h: CGFloat = 0, s: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
+            srgb.getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+            if s < 0.35 {
+                s = min(s * 2.6 + 0.18, 0.85)
+            } else if s < 0.6 {
+                s = min(s * 1.35, 0.9)
+            }
+            br = max(br, 0.82)
+            // For very desaturated originals (mac_home s~0.16) this moves 0.16 -> 0.60
+            color = NSColor(hue: h, saturation: s, brightness: br, alpha: 1)
+        }
+        return color
     }
 
     /// Prefer a CGImage already in sRGB to keep colors 1:1.

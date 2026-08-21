@@ -64,8 +64,9 @@ struct ProjectCheckpoint: Codable, Equatable {
     var panX: Float
     var panY: Float
     var panZ: Float
+    var lidAngle: Float // MacBook lid open angle in degrees; default when absent
 
-    init(id: UUID = UUID(), time: Double, yaw: Float, pitch: Float, radius: Float, zoom: Float, pan: SIMD3<Float> = .zero) {
+    init(id: UUID = UUID(), time: Double, yaw: Float, pitch: Float, radius: Float, zoom: Float, pan: SIMD3<Float> = .zero, lidAngle: Float = MacBookLidRig.defaultOpenAngle) {
         self.id = id.uuidString
         self.time = time
         self.yaw = yaw
@@ -75,11 +76,12 @@ struct ProjectCheckpoint: Codable, Equatable {
         self.panX = pan.x
         self.panY = pan.y
         self.panZ = pan.z
+        self.lidAngle = lidAngle
     }
 
-    // Backward compat: old files without pan decode as 0
+    // Backward compat: old files without pan/lid decode with defaults
     enum CodingKeys: String, CodingKey {
-        case id, time, yaw, pitch, radius, zoom, panX, panY, panZ
+        case id, time, yaw, pitch, radius, zoom, panX, panY, panZ, lidAngle
     }
 
     init(from decoder: Decoder) throws {
@@ -93,6 +95,7 @@ struct ProjectCheckpoint: Codable, Equatable {
         panX = try c.decodeIfPresent(Float.self, forKey: .panX) ?? 0
         panY = try c.decodeIfPresent(Float.self, forKey: .panY) ?? 0
         panZ = try c.decodeIfPresent(Float.self, forKey: .panZ) ?? 0
+        lidAngle = try c.decodeIfPresent(Float.self, forKey: .lidAngle) ?? MacBookLidRig.defaultOpenAngle
     }
 
     func encode(to encoder: Encoder) throws {
@@ -106,6 +109,7 @@ struct ProjectCheckpoint: Codable, Equatable {
         try c.encode(panX, forKey: .panX)
         try c.encode(panY, forKey: .panY)
         try c.encode(panZ, forKey: .panZ)
+        try c.encode(lidAngle, forKey: .lidAngle)
     }
 
     var uuid: UUID { UUID(uuidString: id) ?? UUID() }
@@ -121,6 +125,7 @@ struct YomMockProjectDocument: Codable, Equatable {
     var backgroundRaw: String // StudioBackground name
     var customBackground: ProjectColor?
     var zoom: Float
+    var lidAngle: Float? // current MacBook lid angle; nil in older projects
     var timelineDuration: Double
     var timelineCurrentTime: Double
     var checkpoints: [ProjectCheckpoint]
@@ -138,6 +143,7 @@ struct YomMockProjectDocument: Codable, Equatable {
             && lhs.backgroundRaw == rhs.backgroundRaw
             && lhs.customBackground == rhs.customBackground
             && lhs.zoom == rhs.zoom
+            && lhs.lidAngle == rhs.lidAngle
             && lhs.timelineDuration == rhs.timelineDuration
             && lhs.timelineCurrentTime == rhs.timelineCurrentTime
             && lhs.checkpoints == rhs.checkpoints

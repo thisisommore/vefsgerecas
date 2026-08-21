@@ -98,8 +98,13 @@ final class OffscreenSceneRenderer {
     private var realityRenderer: RealityRenderer
     private let scene = PhoneScene()
     private var deviceKind: Device = .iPhone
+    private var lidRig: MacBookLidRig?
     private var displayTexture: TextureResource?
+    private var displayAverageColor: NSColor?
     private var lastDisplayImage: CGImage?
+    private var currentFinish: PhoneFinish?
+    private var lastAppliedGlow: Float = 0
+    private var lastAppliedColor: NSColor?
 
     // Studio backdrop gradient (resolution-exact, built once per inputs change)
     private var gradientImage: CIImage
@@ -182,6 +187,7 @@ final class OffscreenSceneRenderer {
         renderer.cameraSettings.colorBackground = .outputTexture()
         self.realityRenderer = renderer
         self.deviceKind = inputs.device
+        self.currentFinish = inputs.finish
 
         guard let bundleURL = Bundle.main.url(
             forResource: inputs.device.modelResource,
@@ -206,10 +212,21 @@ final class OffscreenSceneRenderer {
                 )
             )
             lastDisplayImage = cg
+            displayAverageColor = PhoneStyling.averageColor(from: cg)
+        } else {
+            displayAverageColor = nil
         }
-        PhoneStyling.applyMaterials(to: model, device: inputs.device, finish: inputs.finish, displayTexture: displayTexture)
+        PhoneStyling.applyMaterials(to: model, device: inputs.device, finish: inputs.finish, displayTexture: displayTexture, lidGlow: lidRig?.glowFactor ?? 0, displayAverageColor: displayAverageColor)
+        lastAppliedColor = displayAverageColor
         PhoneStyling.applyGroundingShadows(to: model)
         renderer.entities.append(model)
+
+        // MacBook: hinge rig so the lid can close (screen spill on the
+        // keyboard is applied via materials with the rig's glowFactor).
+        if inputs.device == .macBookPro {
+            lidRig = MacBookLidRig.install(on: model)
+            lidRig?.displayOn = displayTexture != nil
+        }
 
         let camera = PerspectiveCamera()
         camera.name = "ExportCamera"
@@ -243,13 +260,23 @@ final class OffscreenSceneRenderer {
                 )
             )
             lastDisplayImage = cg
+            displayAverageColor = PhoneStyling.averageColor(from: cg)
         } else if inputs.displayImage == nil {
             displayTexture = nil
             lastDisplayImage = nil
+            displayAverageColor = nil
         }
         if let model = scene.phone {
-            PhoneStyling.applyMaterials(to: model, device: deviceKind, finish: inputs.finish, displayTexture: displayTexture)
+            let glow = lidRig?.glowFactor ?? 0
+            let colorChanged = displayAverageColor != lastAppliedColor
+            if abs(glow - lastAppliedGlow) > 0.004 || colorChanged {
+                PhoneStyling.applyMaterials(to: model, device: deviceKind, finish: inputs.finish, displayTexture: displayTexture, lidGlow: glow, displayAverageColor: displayAverageColor)
+                lastAppliedGlow = glow
+                lastAppliedColor = displayAverageColor
+            }
         }
+        lidRig?.displayOn = displayTexture != nil
+        currentFinish = inputs.finish
         gradientImage = Self.makeGradient(
             top: inputs.backgroundTop,
             bottom: inputs.backgroundBottom,
@@ -264,7 +291,7 @@ final class OffscreenSceneRenderer {
     /// Renders one frame and returns the pixel buffer containing it.
     /// The buffer stays valid until the caller releases it (AVAssetWriter
     /// retains it until encoding completes); the pool recycles buffers.
-    func render(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>, deltaTime: TimeInterval) async throws -> CVPixelBuffer {
+    func render(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>, lidAngle: Float = MacBookLidRig.defaultOpenAngle, deltaTime: TimeInterval) async throws -> CVPixelBuffer {
         guard let pool = pixelBufferPool, let textureCache else {
             throw OffscreenRenderError.pixelBufferFailed
         }
@@ -313,8 +340,19 @@ final class OffscreenSceneRenderer {
             throw OffscreenRenderError.renderFailed(error.localizedDescription)
         }
 
-        // 2) Camera pose on the offscreen scene, then render over the gradient.
+        // 2) Camera pose + lid on the offscreen scene, then render over the gradient.
         scene.apply(orbit: orbit, zoom: zoom, pan: pan)
+        if let lidRig {
+            lidRig.setLidAngle(lidAngle)
+            // Screen-spill emissive follows the lid — re-apply when it moved.
+            let glow = lidRig.glowFactor
+            if abs(glow - lastAppliedGlow) > 0.004, let model = scene.phone, let finish = currentFinish {
+                PhoneStyling.applyMaterials(
+                    to: model, device: deviceKind, finish: finish,
+                    displayTexture: displayTexture, lidGlow: glow, displayAverageColor: displayAverageColor)
+                lastAppliedGlow = glow
+            }
+        }
         let output = try RealityRenderer.CameraOutput(
             .singleProjection(colorTexture: texture)
         )
@@ -366,6 +404,9 @@ final class OffscreenSceneRenderer {
             intent: .defaultIntent
         )
     }
+
+    /// Test hook: the loaded device model (for mesh-level render assertions).
+    var modelEntityForTesting: Entity? { scene.phone }
 
     // MARK: - Helpers
 

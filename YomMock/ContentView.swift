@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var scene = PhoneScene()
     @State private var zoomAnimationTask: Task<Void, Never>?
     @State private var displayTexture: TextureResource?
+    @State private var displayAverageColor: NSColor?
     @State private var displayStatus: String?
     @State private var displayLoadTask: Task<Void, Never>?
     @EnvironmentObject private var unsavedGuard: UnsavedChangesGuard
@@ -60,6 +61,7 @@ struct ContentView: View {
 
                 InspectorPanel(
                     device: $store.device,
+                    lidAngle: $store.lidAngle,
                     selectedColor: $store.selectedColor,
                     customColor: $store.customColor,
                     background: $store.background,
@@ -108,6 +110,11 @@ struct ContentView: View {
             guard !store.timeline.isPlaying else { return }
             scene.zoom = value
             scene.applyZoom()
+            store.markDirty()
+        }
+        .onChange(of: store.lidAngle) { _, value in
+            scene.applyLidAngle(value)
+            refreshMaterials()
             store.markDirty()
         }
         .onChange(of: store.displayImage) { _, newImage in
@@ -224,9 +231,30 @@ struct ContentView: View {
                         to: model,
                         device: store.device,
                         finish: store.selectedColor.finish(custom: store.customColor),
-                        displayTexture: displayTexture
+                        displayTexture: displayTexture,
+                        lidGlow: scene.lidRig?.glowFactor ?? 0,
+                        displayAverageColor: displayAverageColor
                     )
                     PhoneStyling.applyGroundingShadows(to: model)
+
+                    if store.device == .macBookPro {
+                        scene.lidRig = MacBookLidRig.install(on: model)
+                        scene.lidRig?.displayOn = displayTexture != nil
+                        scene.lidRig?.setLidAngle(store.lidAngle)
+                        // Re-apply with lidGlow now that rig exists
+                        if displayTexture != nil {
+                            PhoneStyling.applyMaterials(
+                                to: model,
+                                device: store.device,
+                                finish: store.selectedColor.finish(custom: store.customColor),
+                                displayTexture: displayTexture,
+                                lidGlow: scene.lidRig?.glowFactor ?? 0,
+                                displayAverageColor: displayAverageColor
+                            )
+                        }
+                    } else {
+                        scene.lidRig = nil
+                    }
 
                     let ibl = Entity()
                     ibl.name = "IBL"
@@ -362,7 +390,8 @@ struct ContentView: View {
             at: store.timeline.currentTime,
             pose: scene.captureOrbitPose(),
             zoom: store.zoom,
-            pan: scene.panOffset
+            pan: scene.panOffset,
+            lidAngle: store.lidAngle
         )
         store.markDirty()
         updateWindowTitle()
@@ -371,8 +400,16 @@ struct ContentView: View {
     private func applyEvaluatedPose() {
         let state = store.timeline.evaluatedState()
         scene.apply(orbit: state.orbit, zoom: state.zoom, pan: state.pan)
+        scene.applyLidAngle(state.lidAngle)
+        if store.device == .macBookPro {
+            // Screen-spill emissive follows the lid angle.
+            refreshMaterials()
+        }
         if store.zoom != state.zoom {
             store.zoom = state.zoom
+        }
+        if store.lidAngle != state.lidAngle {
+            store.lidAngle = state.lidAngle
         }
     }
 
@@ -407,7 +444,9 @@ struct ContentView: View {
             to: model,
             device: store.device,
             finish: store.selectedColor.finish(custom: store.customColor),
-            displayTexture: displayTexture
+            displayTexture: displayTexture,
+            lidGlow: scene.lidRig?.glowFactor ?? 0,
+            displayAverageColor: displayAverageColor
         )
     }
 
@@ -416,19 +455,31 @@ struct ContentView: View {
         displayStatus = nil
         guard let image else {
             displayTexture = nil
+            displayAverageColor = nil
+            scene.lidRig?.displayOn = false
             refreshMaterials()
             return
+        }
+        // Compute average color synchronously for immediate spill tint
+        if let cg = try? PhoneStyling.sRGBCGImage(from: image),
+           let avg = PhoneStyling.averageColor(from: cg) {
+            displayAverageColor = avg
+        } else {
+            displayAverageColor = nil
         }
         displayLoadTask = Task { @MainActor in
             do {
                 let texture = try await PhoneStyling.displayTexture(from: image)
                 guard !Task.isCancelled else { return }
                 displayTexture = texture
+                scene.lidRig?.displayOn = true
                 refreshMaterials()
             } catch {
                 guard !Task.isCancelled else { return }
                 displayStatus = error.localizedDescription
                 displayTexture = nil
+                displayAverageColor = nil
+                scene.lidRig?.displayOn = false
                 refreshMaterials()
             }
         }
@@ -501,12 +552,17 @@ final class PhoneScene {
     var camera: Entity?
     var phone: Entity?
     var floor: Entity?
+    var lidRig: MacBookLidRig?
     var orbitPose = OrbitPose.default
     var zoom: Float = 1
     var baseScale: Float = 1
     var modelCenter = SIMD3<Float>.zero
     var panOffset = SIMD3<Float>.zero
     var hasUserInteracted = false
+
+    func applyLidAngle(_ angle: Float) {
+        lidRig?.setLidAngle(angle)
+    }
 
     func apply(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) {
         orbitPose = orbit

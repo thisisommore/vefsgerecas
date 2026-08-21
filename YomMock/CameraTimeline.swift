@@ -47,13 +47,16 @@ nonisolated struct CameraCheckpoint: Identifiable, Equatable, Sendable {
     var pose: OrbitPose
     var zoom: Float
     var pan: SIMD3<Float>
+    /// MacBook lid open angle in degrees (0 = closed). Ignored for iPhone.
+    var lidAngle: Float
 
-    init(id: UUID = UUID(), time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) {
+    init(id: UUID = UUID(), time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero, lidAngle: Float = MacBookLidRig.defaultOpenAngle) {
         self.id = id
         self.time = time
         self.pose = pose
         self.zoom = zoom
         self.pan = pan
+        self.lidAngle = lidAngle
     }
 }
 
@@ -97,7 +100,7 @@ final class CameraTimeline {
             if fm.fileExists(atPath: url.path), let loaded = try? YomMockProject.load(from: url) {
                 let t = CameraTimeline(duration: loaded.document.timelineDuration)
                 t.checkpoints = loaded.document.checkpoints.map { pc in
-                    CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan)
+                    CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan, lidAngle: pc.lidAngle)
                 }
                 if let sel = loaded.document.selectedCheckpointID, let uuid = UUID(uuidString: sel) {
                     t.selectedCheckpointID = uuid
@@ -113,7 +116,7 @@ final class CameraTimeline {
         if fm.fileExists(atPath: alt.path), let loaded = try? YomMockProject.load(from: alt) {
             let t = CameraTimeline(duration: loaded.document.timelineDuration)
             t.checkpoints = loaded.document.checkpoints.map { pc in
-                CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan)
+                CameraCheckpoint(id: pc.uuid, time: pc.time, pose: OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius), zoom: pc.zoom, pan: pc.pan, lidAngle: pc.lidAngle)
             }
             t.selectedCheckpointID = loaded.document.selectedCheckpointID.flatMap { UUID(uuidString: $0) } ?? t.checkpoints.first?.id
             t.currentTime = loaded.document.timelineCurrentTime
@@ -181,27 +184,28 @@ final class CameraTimeline {
         currentTime = min(currentTime, duration)
     }
 
-    /// Save the given orbit + zoom + pan at the playhead, updating an existing
-    /// checkpoint at that time or inserting a new one.
+    /// Save the given orbit + zoom + pan + lid at the playhead, updating an
+    /// existing checkpoint at that time or inserting a new one.
     @discardableResult
-    func saveCheckpoint(at time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) -> CameraCheckpoint {
+    func saveCheckpoint(at time: TimeInterval, pose: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero, lidAngle: Float = MacBookLidRig.defaultOpenAngle) -> CameraCheckpoint {
         let t = min(max(time, 0), duration)
         if let index = checkpoints.firstIndex(where: { abs($0.time - t) <= Self.snapTolerance }) {
             checkpoints[index].time = t
             checkpoints[index].pose = pose
             checkpoints[index].zoom = zoom
             checkpoints[index].pan = pan
+            checkpoints[index].lidAngle = lidAngle
             selectedCheckpointID = checkpoints[index].id
             return checkpoints[index]
         }
-        let checkpoint = CameraCheckpoint(time: t, pose: pose, zoom: zoom, pan: pan)
+        let checkpoint = CameraCheckpoint(time: t, pose: pose, zoom: zoom, pan: pan, lidAngle: lidAngle)
         checkpoints.append(checkpoint)
         checkpoints.sort { $0.time < $1.time }
         selectedCheckpointID = checkpoint.id
         return checkpoint
     }
 
-    func updateSelectedCheckpoint(pose: OrbitPose? = nil, zoom: Float? = nil, pan: SIMD3<Float>? = nil) {
+    func updateSelectedCheckpoint(pose: OrbitPose? = nil, zoom: Float? = nil, pan: SIMD3<Float>? = nil, lidAngle: Float? = nil) {
         guard
             let id = selectedCheckpointID,
             let index = checkpoints.firstIndex(where: { $0.id == id })
@@ -209,6 +213,7 @@ final class CameraTimeline {
         if let pose { checkpoints[index].pose = pose }
         if let zoom { checkpoints[index].zoom = zoom }
         if let pan { checkpoints[index].pan = pan }
+        if let lidAngle { checkpoints[index].lidAngle = lidAngle }
     }
 
     func deleteCheckpoint(id: UUID) {
@@ -236,23 +241,23 @@ final class CameraTimeline {
         checkpoints[0].pose = pose
     }
 
-    /// Interpolated orbit + zoom + pan at a time, eased between adjacent checkpoints.
-    func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>) {
+    /// Interpolated orbit + zoom + pan + lid at a time, eased between adjacent checkpoints.
+    func evaluatedState(at time: TimeInterval? = nil) -> (orbit: OrbitPose, zoom: Float, pan: SIMD3<Float>, lidAngle: Float) {
         let t = time ?? currentTime
         let keys = checkpoints.sorted { $0.time < $1.time }
         guard let first = keys.first else {
-            return (.default, 1, .zero)
+            return (.default, 1, .zero, MacBookLidRig.defaultOpenAngle)
         }
         // Before/beyond the outer keyframes, hold the nearest value.
-        if t <= first.time { return (first.pose, first.zoom, first.pan) }
-        guard let last = keys.last else { return (first.pose, first.zoom, first.pan) }
-        if t >= last.time { return (last.pose, last.zoom, last.pan) }
+        if t <= first.time { return (first.pose, first.zoom, first.pan, first.lidAngle) }
+        guard let last = keys.last else { return (first.pose, first.zoom, first.pan, first.lidAngle) }
+        if t >= last.time { return (last.pose, last.zoom, last.pan, last.lidAngle) }
 
         guard
             let nextIndex = keys.firstIndex(where: { $0.time >= t }),
             nextIndex > 0
         else {
-            return (last.pose, last.zoom, last.pan)
+            return (last.pose, last.zoom, last.pan, last.lidAngle)
         }
 
         let start = keys[nextIndex - 1]
@@ -264,7 +269,8 @@ final class CameraTimeline {
         return (
             start.pose.interpolated(to: end.pose, t: eased),
             start.zoom + (end.zoom - start.zoom) * eased,
-            pan
+            pan,
+            start.lidAngle + (end.lidAngle - start.lidAngle) * eased
         )
     }
 

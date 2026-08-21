@@ -18,6 +18,7 @@ final class YomMockStore {
     // MARK: - Savable state (mirrors ContentView @State)
 
     var device: Device = .iPhone
+    var lidAngle: Float = MacBookLidRig.defaultOpenAngle
     var selectedColor: iPhoneColor = .black
     var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     var background: StudioBackground = .white
@@ -92,7 +93,7 @@ final class YomMockStore {
 
     func makeDocument() -> YomMockProjectDocument {
         let checkpoints: [ProjectCheckpoint] = timeline.checkpoints.map { cp in
-            ProjectCheckpoint(id: cp.id, time: cp.time, yaw: cp.pose.yaw, pitch: cp.pose.pitch, radius: cp.pose.radius, zoom: cp.zoom, pan: cp.pan)
+            ProjectCheckpoint(id: cp.id, time: cp.time, yaw: cp.pose.yaw, pitch: cp.pose.pitch, radius: cp.pose.radius, zoom: cp.zoom, pan: cp.pan, lidAngle: cp.lidAngle)
         }
         let doc = YomMockProjectDocument(
             version: YomMockProjectDocument.currentVersion,
@@ -102,6 +103,7 @@ final class YomMockStore {
             backgroundRaw: background.rawValueForProject,
             customBackground: ProjectColor(color: customBackground),
             zoom: zoom,
+            lidAngle: lidAngle,
             timelineDuration: timeline.duration,
             timelineCurrentTime: timeline.currentTime,
             checkpoints: checkpoints,
@@ -117,6 +119,7 @@ final class YomMockStore {
         defer { isRestoring = false }
 
         device = Device(rawValue: doc.deviceRaw ?? "") ?? .iPhone
+        lidAngle = doc.lidAngle ?? MacBookLidRig.defaultOpenAngle
         selectedColor = iPhoneColor.from(projectRaw: doc.selectedColorRaw)
         if let pc = doc.customColor {
             customColor = pc.color
@@ -131,7 +134,7 @@ final class YomMockStore {
         let newCheckpoints: [CameraCheckpoint] = doc.checkpoints.map { pc in
             let pose = OrbitPose(yaw: pc.yaw, pitch: pc.pitch, radius: pc.radius)
             let id = UUID(uuidString: pc.id) ?? UUID()
-            return CameraCheckpoint(id: id, time: pc.time, pose: pose, zoom: pc.zoom, pan: pc.pan)
+            return CameraCheckpoint(id: id, time: pc.time, pose: pose, zoom: pc.zoom, pan: pc.pan, lidAngle: pc.lidAngle)
         }
         // Ensure sorted
         let sorted = newCheckpoints.sorted { $0.time < $1.time }
@@ -207,6 +210,7 @@ final class YomMockStore {
         }
         isRestoring = true
         device = .iPhone
+        lidAngle = MacBookLidRig.defaultOpenAngle
         selectedColor = .black
         customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
         background = .white
@@ -307,7 +311,7 @@ final class YomMockStore {
                 }
                 guard let renderer = stillRenderer else { return }
                 let buffer = try await renderer.render(
-                    orbit: state.orbit, zoom: state.zoom, pan: state.pan, deltaTime: 1.0 / 30)
+                    orbit: state.orbit, zoom: state.zoom, pan: state.pan, lidAngle: state.lidAngle, deltaTime: 1.0 / 30)
                 guard let image = renderer.makeCGImage(from: buffer) else {
                     projectError = "Could not create an image from the rendered frame."
                     return

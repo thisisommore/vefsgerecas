@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 
 struct InspectorPanel: View {
     @Binding var device: Device
+    @Binding var lidAngle: Float
     @Binding var selectedColor: iPhoneColor
     @Binding var customColor: Color
     @Binding var background: StudioBackground
@@ -26,6 +27,12 @@ struct InspectorPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     DeviceInspectorPanel(device: $device)
+
+                    if device == .macBookPro {
+                        Divider()
+
+                        LidInspectorPanel(lidAngle: $lidAngle)
+                    }
 
                     Divider()
 
@@ -77,6 +84,30 @@ private struct DeviceInspectorPanel: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+        }
+    }
+}
+
+// MARK: - Lid (MacBook)
+
+private struct LidInspectorPanel: View {
+    @Binding var lidAngle: Float
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorHeader(title: "LID", subtitle: "Opening angle")
+
+            HStack(spacing: 8) {
+                Slider(
+                    value: $lidAngle,
+                    in: MacBookLidRig.minOpenAngle...MacBookLidRig.defaultOpenAngle
+                )
+                .controlSize(.small)
+                Text("\(Int(lidAngle.rounded()))°")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, alignment: .trailing)
+            }
         }
     }
 }

@@ -9,6 +9,7 @@
 
 import AppKit
 import Foundation
+import RealityKit
 import SwiftUI
 import Testing
 import simd
@@ -143,6 +144,39 @@ struct OffscreenRenderTests {
         let imgA = try #require(withImage.makeCGImage(from: a))
         let imgB = try #require(withoutImage.makeCGImage(from: b))
         #expect(meanDifference(imgA, imgB) > 0.5, "Display screenshot should change screen pixels")
+    }
+
+    // TEMP debug — lid angle + screen light tuning. Remove after visual verification.
+    @Test @MainActor
+    func zzLidAngleDumps() async throws {
+        let renderer = try await OffscreenSceneRenderer(
+            outputSize: CGSize(width: 960, height: 540),
+            previewPointSize: CGSize(width: 960, height: 540),
+            inputs: makeInputs(device: .macBookPro, withDisplay: true))
+        let hero = OrbitPose(yaw: 0.6, pitch: 0.5, radius: 4.2)
+        let side = OrbitPose(yaw: .pi / 2, pitch: 0.1, radius: 4.2)
+
+        func dump(_ tag: String, _ pose: OrbitPose, _ angle: Float) async throws {
+            let buffer = try await renderer.render(
+                orbit: pose, zoom: 1.45, pan: .zero, lidAngle: angle, deltaTime: 1.0 / 30)
+            let img = try #require(renderer.makeCGImage(from: buffer))
+            let small = NSImage(size: NSSize(width: 480, height: 270))
+            small.lockFocus()
+            NSImage(cgImage: img, size: NSSize(width: img.width, height: img.height))
+                .draw(in: NSRect(x: 0, y: 0, width: 480, height: 270))
+            small.unlockFocus()
+            if let jpeg = small.tiffRepresentation
+                .flatMap({ NSBitmapImageRep(data: $0) })?
+                .representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
+                print("B64-\(tag):" + jpeg.base64EncodedString())
+            }
+        }
+
+        // Screen-spill (emissive glow) across the lid range.
+        for angle in [Float(55), 45, 35, 15] {
+            try await dump("GLOW-\(Int(angle))", hero, angle)
+        }
+        try await dump("GLOW-35-SIDE", side, 35)
     }
 
     @Test @MainActor
