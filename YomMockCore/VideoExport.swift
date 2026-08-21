@@ -10,7 +10,6 @@
 //
 
 import AVFoundation
-import AppKit
 import CoreVideo
 import Metal
 import simd

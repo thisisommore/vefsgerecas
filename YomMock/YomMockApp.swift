@@ -152,7 +152,7 @@ struct YomMockApp: App {
                 Divider()
 
                 Button("Open Project…") {
-                    focusedStore?.openProject()
+                    focusedStore?.openProjectWithPrompt()
                 }
                 .keyboardShortcut("o")
                 .disabled(focusedStore == nil)

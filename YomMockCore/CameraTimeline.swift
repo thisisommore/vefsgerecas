@@ -99,8 +99,11 @@ final class CameraTimeline {
         return t
     }
 
-    /// Loads the user's default template from ~/Documents/default.yommock if present.
+    /// Loads the user's default template from ~/Documents/default.yommock if present (desktop only).
+    /// iPad gets a purpose-built two-checkpoint demo without the desktop
+    /// window-tuned pan values.
     static func demoFromDefaultFile() -> CameraTimeline {
+        #if os(macOS)
         let fm = FileManager.default
         if let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first {
             let url = docs.appendingPathComponent("default.yommock")
@@ -129,7 +132,18 @@ final class CameraTimeline {
             t.currentTime = loaded.document.timelineCurrentTime
             return t
         }
-        return .demo
+        #endif // os(macOS)
+        let t = CameraTimeline(duration: defaultDuration)
+        t.checkpoints = [
+            CameraCheckpoint(time: 0, pose: .default, zoom: 1),
+            CameraCheckpoint(
+                time: 6,
+                pose: OrbitPose(yaw: .pi / 3, pitch: 0.32, radius: 4.8),
+                zoom: 1.1
+            ),
+        ]
+        t.selectedCheckpointID = t.checkpoints.first?.id
+        return t
     }
 
     var minDuration: TimeInterval {
@@ -229,6 +243,17 @@ final class CameraTimeline {
         if selectedCheckpointID == id {
             selectedCheckpointID = nil
         }
+    }
+
+    /// Moves a checkpoint's time without reordering (used by drag-retiming).
+    func moveCheckpoint(id: UUID, to time: TimeInterval) {
+        guard let index = checkpoints.firstIndex(where: { $0.id == id }) else { return }
+        checkpoints[index].time = min(max(time, 0), duration)
+    }
+
+    /// Restores time ordering after a drag-retime session.
+    func finishReorder() {
+        checkpoints.sort { $0.time < $1.time }
     }
 
     func select(_ checkpoint: CameraCheckpoint) {

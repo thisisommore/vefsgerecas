@@ -133,8 +133,8 @@ struct VideoExportOptionsView: View {
         .padding(20)
         .frame(width: 420)
         .onAppear {
-            if let view = store.frameCaptureViewProvider?() {
-                previewPoints = view.bounds.size
+            if let size = store.previewPointSizeProvider?() {
+                previewPoints = size
             }
         }
     }

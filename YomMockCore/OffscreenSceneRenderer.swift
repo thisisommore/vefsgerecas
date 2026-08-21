@@ -24,8 +24,13 @@
 //
 
 import AVFoundation
-import AppKit
 import CoreImage
+
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 import CoreVideo
 import Metal
 import RealityKit
@@ -79,8 +84,8 @@ final class OffscreenSceneRenderer {
         var device: Device = .iPhone
         var finish: PhoneFinish
         var displayImage: CGImage?
-        var backgroundTop: NSColor
-        var backgroundBottom: NSColor
+        var backgroundTop: PlatformColor
+        var backgroundBottom: PlatformColor
     }
 
     let outputSize: CGSize
@@ -100,11 +105,11 @@ final class OffscreenSceneRenderer {
     private var deviceKind: Device = .iPhone
     private var lidRig: MacBookLidRig?
     private var displayTexture: TextureResource?
-    private var displayAverageColor: NSColor?
+    private var displayAverageColor: PlatformColor?
     private var lastDisplayImage: CGImage?
     private var currentFinish: PhoneFinish?
     private var lastAppliedGlow: Float = 0
-    private var lastAppliedColor: NSColor?
+    private var lastAppliedColor: PlatformColor?
 
     // Studio backdrop gradient (resolution-exact, built once per inputs change)
     private var gradientImage: CIImage
@@ -441,7 +446,7 @@ final class OffscreenSceneRenderer {
 
     /// Recreates the SwiftUI `StudioBackdrop`: a vertical linear gradient with
     /// a soft radial highlight in the middle — resolution-independent.
-    private static func makeGradient(top: NSColor, bottom: NSColor, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
+    private static func makeGradient(top: PlatformColor, bottom: PlatformColor, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
         let topCI = CIColor(color: top) ?? CIColor(red: 1, green: 1, blue: 1)
         let bottomCI = CIColor(color: bottom) ?? CIColor(red: 0.9, green: 0.9, blue: 0.9)
 

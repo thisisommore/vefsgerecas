@@ -6,7 +6,6 @@
 //  settings so a mock can be reopened later with everything restored.
 //
 
-import AppKit
 import Foundation
 import UniformTypeIdentifiers
 import SwiftUI
@@ -29,27 +28,30 @@ struct ProjectColor: Codable, Equatable {
     }
 
     init(color: Color) {
-        let ns = NSColor(color).usingColorSpace(.deviceRGB) ?? NSColor.gray
-        self.r = Double(ns.redComponent)
-        self.g = Double(ns.greenComponent)
-        self.b = Double(ns.blueComponent)
-        self.a = Double(ns.alphaComponent)
+        let comps = platformColor(color).studioRGBA
+        self.r = Double(comps.red)
+        self.g = Double(comps.green)
+        self.b = Double(comps.blue)
+        self.a = Double(comps.alpha)
     }
 
-    init(nsColor: NSColor) {
-        let c = nsColor.usingColorSpace(.deviceRGB) ?? nsColor
-        self.r = Double(c.redComponent)
-        self.g = Double(c.greenComponent)
-        self.b = Double(c.blueComponent)
-        self.a = Double(c.alphaComponent)
+    init(platformColor: PlatformColor) {
+        let c = platformColor.studioRGBA
+        self.r = Double(c.red)
+        self.g = Double(c.green)
+        self.b = Double(c.blue)
+        self.a = Double(c.alpha)
     }
 
     var color: Color {
-        Color(nsColor: NSColor(calibratedRed: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a)))
+        Color(
+            platform: PlatformColor.studio(
+                red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a)))
     }
 
-    var nsColor: NSColor {
-        NSColor(calibratedRed: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a))
+    var resolvedPlatformColor: PlatformColor {
+        PlatformColor.studio(
+            red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a))
     }
 }
 
@@ -162,7 +164,7 @@ enum YomMockProject {
     struct Loaded {
         let projectURL: URL
         let document: YomMockProjectDocument
-        let displayImage: NSImage?
+        let displayImage: PlatformImage?
     }
 
     static func documentURL(in projectURL: URL) -> URL {
@@ -182,17 +184,17 @@ enum YomMockProject {
         let data = try Data(contentsOf: docURL)
         let document = try JSONDecoder().decode(YomMockProjectDocument.self, from: data)
 
-        var image: NSImage?
+        var image: PlatformImage?
         if let rel = document.displayRelativePath {
             let url = projectURL.appendingPathComponent(rel)
             if FileManager.default.fileExists(atPath: url.path) {
-                image = NSImage(contentsOf: url)
+                image = PlatformImageLoader.image(contentsOf: url)
             }
         } else {
             // fallback to legacy location assets/display.png
             let fallback = displayURL(in: projectURL)
             if FileManager.default.fileExists(atPath: fallback.path) {
-                image = NSImage(contentsOf: fallback)
+                image = PlatformImageLoader.image(contentsOf: fallback)
             }
         }
         return Loaded(projectURL: projectURL, document: document, displayImage: image)
@@ -203,7 +205,7 @@ enum YomMockProject {
     static func save(
         to projectURL: URL,
         document: YomMockProjectDocument,
-        displayImage: NSImage?
+        displayImage: PlatformImage?
     ) throws -> YomMockProjectDocument {
         let fm = FileManager.default
         let tempURL = fm.temporaryDirectory
@@ -217,16 +219,12 @@ enum YomMockProject {
             var saved = document
             saved.version = YomMockProjectDocument.currentVersion
 
-            if let displayImage {
+            if let displayImage,
+               let cg = PlatformImageLoader.cgImage(from: displayImage),
+               let png = PlatformImageLoader.pngData(from: cg) {
                 let dest = assetsDir.appendingPathComponent(displayFileName)
-                if let tiff = displayImage.tiffRepresentation,
-                   let rep = NSBitmapImageRep(data: tiff),
-                   let png = rep.representation(using: .png, properties: [:]) {
-                    try png.write(to: dest)
-                    saved.displayRelativePath = "\(assetsDirectoryName)/\(displayFileName)"
-                } else {
-                    saved.displayRelativePath = nil
-                }
+                try png.write(to: dest)
+                saved.displayRelativePath = "\(assetsDirectoryName)/\(displayFileName)"
             } else {
                 saved.displayRelativePath = nil
             }

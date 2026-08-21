@@ -1,19 +1,30 @@
 //
 //  Theme.swift
-//  YomMock
+//  YomMockCore
 //
 
-import AppKit
 import SwiftUI
+
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 extension Color {
     /// A color that resolves differently in light and dark appearance.
     static func dynamic(light: Color, dark: Color) -> Color {
+        #if canImport(AppKit)
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
                 ? NSColor(dark)
                 : NSColor(light)
         })
+        #else
+        Color(uiColor: UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+        #endif
     }
 
     /// Playhead knob fill that stays visible on the track in both modes.
@@ -69,25 +80,10 @@ enum StudioBackground: Hashable, Identifiable {
         default:
             base = swatch
         }
-        let nsBase = NSColor(base).usingColorSpace(.deviceRGB)
-            ?? NSColor(calibratedWhite: 0.5, alpha: 1)
-        let top = nsBase.blended(with: .white, amount: 0.12)
-        let bottom = nsBase.blended(with: .black, amount: 0.05)
-        return (Color(nsColor: top), Color(nsColor: bottom))
+        let nsBase = platformColor(base)
+        let top = nsBase.blended(with: PlatformColor.studioWhite(1), amount: 0.12)
+        let bottom = nsBase.blended(with: PlatformColor.studioWhite(0), amount: 0.05)
+        return (Color(platform: top), Color(platform: bottom))
     }
 }
-
-extension NSColor {
-    func blended(with other: NSColor, amount: CGFloat) -> NSColor {
-        let lhs = usingColorSpace(.deviceRGB) ?? self
-        let rhs = other.usingColorSpace(.deviceRGB) ?? other
-        return NSColor(
-            calibratedRed: lhs.redComponent + (rhs.redComponent - lhs.redComponent) * amount,
-            green: lhs.greenComponent + (rhs.greenComponent - lhs.greenComponent) * amount,
-            blue: lhs.blueComponent + (rhs.blueComponent - lhs.blueComponent) * amount,
-            alpha: 1
-        )
-    }
-}
-
 

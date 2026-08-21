@@ -24,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A130BD723038704800A28933 /* YomMock-iPad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "YomMock-iPad.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A14959AF302F0E9A00903E35 /* YomMock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = YomMock.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A14959BC302F0E9C00903E35 /* YomMockTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = YomMockTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A14959C6302F0E9C00903E35 /* YomMockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = YomMockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -43,6 +44,16 @@
 		A14959C9302F0E9C00903E35 /* YomMockUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = YomMockUITests;
+			sourceTree = "<group>";
+		};
+		A14959E1302F0EB000903E35 /* YomMockCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = YomMockCore;
+			sourceTree = "<group>";
+		};
+		A14959E2302F0EB000903E35 /* YomMock-iPad */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "YomMock-iPad";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -69,9 +80,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A14959E4302F0EB000903E35 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		A130BD713038704800A28933 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				A14959E1302F0EB000903E35 /* YomMockCore */,
+				A14959E2302F0EB000903E35 /* YomMock-iPad */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		A14959A6302F0E9A00903E35 = {
 			isa = PBXGroup;
 			children = (
@@ -79,6 +106,7 @@
 				A14959BF302F0E9C00903E35 /* YomMockTests */,
 				A14959C9302F0E9C00903E35 /* YomMockUITests */,
 				A14959B0302F0E9A00903E35 /* Products */,
+				A130BD713038704800A28933 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -88,6 +116,7 @@
 				A14959AF302F0E9A00903E35 /* YomMock.app */,
 				A14959BC302F0E9C00903E35 /* YomMockTests.xctest */,
 				A14959C6302F0E9C00903E35 /* YomMockUITests.xctest */,
+				A130BD723038704800A28933 /* YomMock-iPad.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -109,6 +138,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				A14959B1302F0E9A00903E35 /* YomMock */,
+				A14959E1302F0EB000903E35 /* YomMockCore */,
 			);
 			name = YomMock;
 			packageProductDependencies = (
@@ -163,6 +193,29 @@
 			productReference = A14959C6302F0E9C00903E35 /* YomMockUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		A14959E6302F0EB000903E35 /* YomMock-iPad */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A14959EA302F0EB000903E35 /* Build configuration list for PBXNativeTarget "YomMock-iPad" */;
+			buildPhases = (
+				A14959E3302F0EB000903E35 /* Sources */,
+				A14959E4302F0EB000903E35 /* Frameworks */,
+				A14959E5302F0EB000903E35 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A14959E1302F0EB000903E35 /* YomMockCore */,
+				A14959E2302F0EB000903E35 /* YomMock-iPad */,
+			);
+			name = "YomMock-iPad";
+			packageProductDependencies = (
+			);
+			productName = "YomMock-iPad";
+			productReference = A130BD723038704800A28933 /* YomMock-iPad.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -184,6 +237,9 @@
 						CreatedOnToolsVersion = 26.1.1;
 						TestTargetID = A14959AE302F0E9A00903E35;
 					};
+					A14959E6302F0EB000903E35 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
 				};
 			};
 			buildConfigurationList = A14959AA302F0E9A00903E35 /* Build configuration list for PBXProject "YomMock" */;
@@ -201,6 +257,7 @@
 			projectRoot = "";
 			targets = (
 				A14959AE302F0E9A00903E35 /* YomMock */,
+				A14959E6302F0EB000903E35 /* YomMock-iPad */,
 				A14959BB302F0E9C00903E35 /* YomMockTests */,
 				A14959C5302F0E9C00903E35 /* YomMockUITests */,
 			);
@@ -229,6 +286,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A14959E5302F0EB000903E35 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -247,6 +311,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A14959C2302F0E9C00903E35 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A14959E3302F0EB000903E35 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -535,6 +606,74 @@
 			};
 			name = Release;
 		};
+		A14959E8302F0EB000903E35 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = NNJNNZZKNN;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "YomMock-iPad-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = YomMock;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save exported frames and videos to your photo library.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.yomlabs.YomMock.iPad;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		A14959E9302F0EB000903E35 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = NNJNNZZKNN;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "YomMock-iPad-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = YomMock;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save exported frames and videos to your photo library.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = xyz.yomlabs.YomMock.iPad;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -570,6 +709,15 @@
 			buildConfigurations = (
 				A14959D7302F0E9C00903E35 /* Debug */,
 				A14959D8302F0E9C00903E35 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A14959EA302F0EB000903E35 /* Build configuration list for PBXNativeTarget "YomMock-iPad" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A14959E8302F0EB000903E35 /* Debug */,
+				A14959E9302F0EB000903E35 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

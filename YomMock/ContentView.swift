@@ -28,9 +28,14 @@ struct ContentView: View {
         mainContent
         .task {
             if store.displayImage == nil {
-                loadDefaultDisplayImage(for: store.device)
+                store.loadDefaultDisplayImage(for: store.device)
             }
-            store.frameCaptureViewProvider = { [previewViewBox] in previewViewBox.view }
+            store.previewPointSizeProvider = { [previewViewBox] in
+                previewViewBox.view?.bounds.size
+            }
+            store.previewBackingScaleProvider = { [previewViewBox] in
+                previewViewBox.view?.window?.backingScaleFactor ?? 2
+            }
             updateWindowTitle()
         }
         .onChange(of: store.isDirty) { _, _ in updateWindowTitle() }
@@ -78,7 +83,7 @@ struct ContentView: View {
             // Swap the bundled default screenshot when the user hasn't
             // overridden it; keep user-provided images across device switches.
             if store.displayFileName == oldDevice.defaultDisplayImageName {
-                loadDefaultDisplayImage(for: newDevice)
+                store.loadDefaultDisplayImage(for: newDevice)
             }
             store.markDirty()
         }
@@ -426,16 +431,6 @@ struct ContentView: View {
             return true
         }
         return false
-    }
-
-    private func loadDefaultDisplayImage(for device: Device) {
-        let name = device.defaultDisplayImageName
-        let url = Bundle.main.url(forResource: name, withExtension: nil)
-            ?? Bundle.main.url(
-                forResource: name.replacingOccurrences(of: ".jpg", with: ""), withExtension: "jpg")
-        guard let url, let img = NSImage(contentsOf: url) else { return }
-        store.displayFileName = name
-        store.displayImage = img
     }
 
     private func updateWindowTitle() {

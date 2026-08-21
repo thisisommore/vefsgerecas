@@ -11,9 +11,12 @@
 //  preview and the offscreen renderer.
 //
 
-import AppKit
 import RealityKit
 import simd
+
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @MainActor
 final class MacBookLidRig {

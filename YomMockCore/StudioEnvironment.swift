@@ -12,10 +12,18 @@ enum StudioEnvironment {
     static func resource() async throws -> EnvironmentResource {
         let image = try renderHDRI()
         do {
+            #if os(macOS)
+            let samplingQuality = TextureResource.SamplingQuality.veryHigh
+            let cubeQuality = TextureResource.SamplingQuality.veryHigh
+            #else
+            // iOS exposes a reduced sampling-quality set.
+            let samplingQuality = TextureResource.SamplingQuality.normal
+            let cubeQuality = TextureResource.SamplingQuality.normal
+            #endif
             let cube = try await TextureResource(
                 cubeFromEquirectangular: image,
                 named: "StudioHDRI",
-                quality: .veryHigh,
+                quality: cubeQuality,
                 faceSize: 512,
                 options: TextureResource.CreateOptions(
                     semantic: .hdrColor,
@@ -26,7 +34,7 @@ enum StudioEnvironment {
             return try await EnvironmentResource(
                 cube: cube,
                 options: EnvironmentResource.CreateOptions(
-                    samplingQuality: .veryHigh,
+                    samplingQuality: samplingQuality,
                     specularCubeDimension: 512,
                     compression: .none
                 )

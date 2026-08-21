@@ -3,7 +3,6 @@
 //  YomMock
 //
 
-import AppKit
 import SwiftUI
 
 enum iPhoneColor: Hashable, Identifiable {
@@ -44,38 +43,37 @@ enum iPhoneColor: Hashable, Identifiable {
         switch self {
         case .lavender:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.68, green: 0.61, blue: 0.73, alpha: 1),
-                frame: NSColor(calibratedRed: 0.52, green: 0.46, blue: 0.58, alpha: 1)
+                back: .studio(red: 0.68, green: 0.61, blue: 0.73),
+                frame: .studio(red: 0.52, green: 0.46, blue: 0.58)
             )
         case .sage:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.57, green: 0.64, blue: 0.51, alpha: 1),
-                frame: NSColor(calibratedRed: 0.44, green: 0.50, blue: 0.40, alpha: 1)
+                back: .studio(red: 0.57, green: 0.64, blue: 0.51),
+                frame: .studio(red: 0.44, green: 0.50, blue: 0.40)
             )
         case .mistBlue:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.52, green: 0.65, blue: 0.74, alpha: 1),
-                frame: NSColor(calibratedRed: 0.40, green: 0.52, blue: 0.62, alpha: 1)
+                back: .studio(red: 0.52, green: 0.65, blue: 0.74),
+                frame: .studio(red: 0.40, green: 0.52, blue: 0.62)
             )
         case .white:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.93, green: 0.92, blue: 0.89, alpha: 1),
-                frame: NSColor(calibratedRed: 0.80, green: 0.80, blue: 0.78, alpha: 1),
+                back: .studio(red: 0.93, green: 0.92, blue: 0.89),
+                frame: .studio(red: 0.80, green: 0.80, blue: 0.78),
                 metallic: 0.10,
                 roughness: 0.12,
                 clearcoat: 0.95
             )
         case .black:
             return PhoneFinish.coloredGlass(
-                back: NSColor(calibratedRed: 0.035, green: 0.035, blue: 0.04, alpha: 1),
-                frame: NSColor(calibratedRed: 0.10, green: 0.10, blue: 0.11, alpha: 1),
+                back: .studio(red: 0.035, green: 0.035, blue: 0.04),
+                frame: .studio(red: 0.10, green: 0.10, blue: 0.11),
                 metallic: 0.48,
                 roughness: 0.07,
                 clearcoat: 1
             )
         case .custom:
-            let back = NSColor(custom).usingColorSpace(.deviceRGB)
-                ?? NSColor(calibratedWhite: 0.5, alpha: 1)
+            let back = platformColor(custom)
             return PhoneFinish.coloredGlass(
                 back: back,
                 frame: back.blended(with: .black, amount: 0.24)
@@ -85,15 +83,15 @@ enum iPhoneColor: Hashable, Identifiable {
 }
 
 struct PhoneFinish {
-    let back: NSColor
-    let frame: NSColor
+    let back: PlatformColor
+    let frame: PlatformColor
     let backMetallic: Float
     let backRoughness: Float
     let backClearcoat: Float
 
     static func coloredGlass(
-        back: NSColor,
-        frame: NSColor,
+        back: PlatformColor,
+        frame: PlatformColor,
         metallic: Float = 0.18,
         roughness: Float = 0.10,
         clearcoat: Float = 1

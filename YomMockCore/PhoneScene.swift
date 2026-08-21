@@ -3,9 +3,13 @@
 //  YomMock
 //
 
-import AppKit
+import Foundation
 import RealityKit
 import simd
+
+#if canImport(AppKit)
+import AppKit
+#endif
 
 enum StudioSceneError: LocalizedError {
     case modelMissing(String)
@@ -37,6 +41,8 @@ final class PhoneScene {
     var panOffset = SIMD3<Float>.zero
     var hasUserInteracted = false
 
+    /// Loads the device model, applies materials, installs the lid rig and
+    /// studio IBL. Throws on failure — the caller surfaces the error.
     /// Loads the device model, applies materials, installs the lid rig and
     /// studio IBL. Throws on failure — the caller surfaces the error.
     func makeStudioEntities(styling: DeviceStyling, lidAngle: Float) async throws -> (model: Entity, ibl: Entity) {
@@ -163,6 +169,8 @@ final class PhoneScene {
         applyZoom()
     }
 
+#if canImport(AppKit)
+    /// Scroll-wheel zoom step (macOS only — iPad uses pinch gestures).
     static func adjustedZoom(from zoom: Float, event: NSEvent) -> Float {
         guard event.momentumPhase.isEmpty else { return zoom }
         let raw = Float(event.scrollingDeltaY)
@@ -171,6 +179,7 @@ final class PhoneScene {
         let step = min(max(units, -1), 1)
         return min(max(zoom * exp(step * 0.04), minZoom), maxZoom)
     }
+#endif
 
     private func positionPhone() {
         guard let phone else { return }

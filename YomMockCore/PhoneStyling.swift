@@ -7,7 +7,6 @@
 //  so exported frames match the preview exactly.
 //
 
-import AppKit
 import RealityKit
 import SwiftUI
 
@@ -16,7 +15,7 @@ struct DeviceStyling {
     var finish: PhoneFinish
     var displayTexture: TextureResource?
     var lidGlow: Float
-    var displayAverageColor: NSColor?
+    var displayAverageColor: PlatformColor?
 }
 
 enum PhoneStyling {
@@ -85,8 +84,8 @@ enum PhoneStyling {
     /// screen spill when the lid is partly closed (MacBookLidRig.glowFactor).
     /// When `displayAverageColor` is provided, the spill is tinted to match
     /// the screenshot instead of the fixed cool-white.
-    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: NSColor? = nil) -> any RealityKit.Material {
-        let glowColor = displayAverageColor ?? NSColor(calibratedRed: 0.72, green: 0.80, blue: 0.95, alpha: 1)
+    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: PlatformColor? = nil) -> any RealityKit.Material {
+        let glowColor = displayAverageColor ?? PlatformColor.studio(red: 0.72, green: 0.80, blue: 0.95)
         switch name.lowercased() {
         case "screen":
             if let displayTexture {
@@ -94,7 +93,7 @@ enum PhoneStyling {
             }
             // Powered-off LCD.
             return pbr(
-                color: NSColor(calibratedWhite: 0.02, alpha: 1),
+                color: PlatformColor.studioWhite(0.02),
                 metallic: 0,
                 roughness: 0.05,
                 specular: 1,
@@ -103,14 +102,14 @@ enum PhoneStyling {
             )
         case "bezel", "bezelchin":
             return pbr(
-                color: NSColor(calibratedWhite: 0.02, alpha: 1),
+                color: PlatformColor.studioWhite(0.02),
                 metallic: 0.1,
                 roughness: 0.25,
                 specular: 0.6
             )
         case "keys":
             return pbr(
-                color: NSColor(calibratedWhite: 0.06, alpha: 1),
+                color: PlatformColor.studioWhite(0.06),
                 metallic: 0,
                 roughness: 0.5,
                 specular: 0.3,
@@ -120,7 +119,7 @@ enum PhoneStyling {
         case "keyboarddetail":
             // Keycap legends — light like backlit glyphs.
             return pbr(
-                color: NSColor(calibratedWhite: 0.75, alpha: 1),
+                color: PlatformColor.studioWhite(0.75),
                 metallic: 0,
                 roughness: 0.5,
                 specular: 0.3,
@@ -133,7 +132,7 @@ enum PhoneStyling {
             // cover glass over the textured screen plane).
             if displayTexture != nil {
                 var material = PhysicallyBasedMaterial()
-                material.baseColor = .init(tint: NSColor(white: 1, alpha: 0))
+                material.baseColor = .init(tint: PlatformColor.studioWhite(1, alpha: 0))
                 material.metallic = .init(floatLiteral: 0)
                 material.roughness = .init(floatLiteral: 0.02)
                 material.specular = .init(floatLiteral: 1)
@@ -143,7 +142,7 @@ enum PhoneStyling {
                 return material
             }
             return pbr(
-                color: NSColor(calibratedRed: 0.03, green: 0.032, blue: 0.036, alpha: 1),
+                color: .studio(red: 0.03, green: 0.032, blue: 0.036),
                 metallic: 0,
                 roughness: 0.028,
                 specular: 1,
@@ -152,7 +151,7 @@ enum PhoneStyling {
             )
         case "hingevent", "port", "deckstrip", "baseinner":
             return pbr(
-                color: NSColor(calibratedWhite: 0.03, alpha: 1),
+                color: PlatformColor.studioWhite(0.03),
                 metallic: 0.1,
                 roughness: 0.45,
                 specular: 0.3,
@@ -181,14 +180,14 @@ enum PhoneStyling {
             )
         case "logo":
             return pbr(
-                color: NSColor(calibratedWhite: 0.8, alpha: 1),
+                color: PlatformColor.studioWhite(0.8),
                 metallic: 1,
                 roughness: 0.08,
                 specular: 1
             )
         case "feet":
             return pbr(
-                color: NSColor(calibratedWhite: 0.05, alpha: 1),
+                color: PlatformColor.studioWhite(0.05),
                 metallic: 0,
                 roughness: 0.6,
                 specular: 0.2
@@ -215,7 +214,7 @@ enum PhoneStyling {
                 return screenMaterial(with: displayTexture)
             }
             return pbr(
-                color: NSColor(calibratedWhite: 0.015, alpha: 1),
+                color: PlatformColor.studioWhite(0.015),
                 metallic: 0,
                 roughness: 0.018,
                 specular: 1,
@@ -225,7 +224,7 @@ enum PhoneStyling {
         }
         if key.contains("screen_edge") || (key.contains("screen") && key.contains("edge")) {
             return pbr(
-                color: NSColor(calibratedWhite: 0.025, alpha: 1),
+                color: PlatformColor.studioWhite(0.025),
                 metallic: 0.08,
                 roughness: 0.22,
                 specular: 0.55
@@ -237,7 +236,7 @@ enum PhoneStyling {
         if key.contains("glass_screen") {
             if displayTexture != nil {
                 var material = PhysicallyBasedMaterial()
-                material.baseColor = .init(tint: NSColor(white: 1, alpha: 0))
+                material.baseColor = .init(tint: PlatformColor.studioWhite(1, alpha: 0))
                 material.metallic = .init(floatLiteral: 0)
                 material.roughness = .init(floatLiteral: 0.015)
                 material.specular = .init(floatLiteral: 1)
@@ -248,7 +247,7 @@ enum PhoneStyling {
             }
             // No screenshot — keep the original dark glass so the off-screen looks correct.
             return pbr(
-                color: NSColor(calibratedRed: 0.03, green: 0.032, blue: 0.036, alpha: 1),
+                color: .studio(red: 0.03, green: 0.032, blue: 0.036),
                 metallic: 0,
                 roughness: 0.028,
                 specular: 1,
@@ -273,7 +272,7 @@ enum PhoneStyling {
         }
         if key.contains("glass") {
             return pbr(
-                color: NSColor(calibratedRed: 0.03, green: 0.032, blue: 0.036, alpha: 1),
+                color: .studio(red: 0.03, green: 0.032, blue: 0.036),
                 metallic: 0,
                 roughness: 0.028,
                 specular: 1,
@@ -283,7 +282,7 @@ enum PhoneStyling {
         }
         if key.contains("lens") {
             return pbr(
-                color: NSColor(calibratedWhite: 0.012, alpha: 1),
+                color: PlatformColor.studioWhite(0.012),
                 metallic: 0.04,
                 roughness: 0.012,
                 specular: 1,
@@ -293,17 +292,17 @@ enum PhoneStyling {
         }
         if key.contains("flash") {
             return pbr(
-                color: NSColor(calibratedRed: 0.94, green: 0.93, blue: 0.88, alpha: 1),
+                color: .studio(red: 0.94, green: 0.93, blue: 0.88),
                 metallic: 0,
                 roughness: 0.3,
                 specular: 0.68,
-                emissive: NSColor(calibratedRed: 0.95, green: 0.93, blue: 0.86, alpha: 1),
+                emissive: .studio(red: 0.95, green: 0.93, blue: 0.86),
                 emissiveIntensity: 0.12
             )
         }
         if key.contains("logo") {
             return pbr(
-                color: NSColor(calibratedWhite: 0.66, alpha: 1),
+                color: PlatformColor.studioWhite(0.66),
                 metallic: 1,
                 roughness: 0.16,
                 specular: 1,
@@ -312,14 +311,14 @@ enum PhoneStyling {
         }
         if key.contains("antenna") {
             return pbr(
-                color: NSColor(calibratedRed: 0.18, green: 0.185, blue: 0.195, alpha: 1),
+                color: .studio(red: 0.18, green: 0.185, blue: 0.195),
                 metallic: 0.72,
                 roughness: 0.3
             )
         }
         if key.contains("plastic") || key.contains("black") || key.contains("mic") {
             return pbr(
-                color: NSColor(calibratedWhite: 0.035, alpha: 1),
+                color: PlatformColor.studioWhite(0.035),
                 metallic: 0,
                 roughness: 0.4,
                 specular: 0.28
@@ -347,14 +346,14 @@ enum PhoneStyling {
     }
 
     static func pbr(
-        color: NSColor,
+        color: PlatformColor,
         metallic: Float,
         roughness: Float,
         specular: Float = 0.5,
         clearcoat: Float = 0,
         clearcoatRoughness: Float = 0.1,
         anisotropy: Float = 0,
-        emissive: NSColor? = nil,
+        emissive: PlatformColor? = nil,
         emissiveIntensity: Float = 0
     ) -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
@@ -379,7 +378,7 @@ enum PhoneStyling {
         // Unlit shows the texture 1:1 — no IBL tint, no ACES washout, no double exposure.
         // Keeps high-res screenshots sharp and color-accurate.
         // applyPostProcessToneMap = false prevents HDR washout (macOS 15+).
-        if #available(macOS 15.0, *) {
+        if #available(macOS 15.0, iOS 18.0, *) {
             var material = UnlitMaterial(color: .white, applyPostProcessToneMap: false)
             material.color = .init(tint: .white, texture: .init(texture))
             return material
@@ -393,7 +392,7 @@ enum PhoneStyling {
     // MARK: - Display screenshot
 
     /// Builds the sRGB display texture used for the phone screen.
-    static func displayTexture(from image: NSImage) async throws -> TextureResource {
+    static func displayTexture(from image: PlatformImage) async throws -> TextureResource {
         let cgImage = try sRGBCGImage(from: image)
         return try await TextureResource(
             image: cgImage,
@@ -410,7 +409,7 @@ enum PhoneStyling {
     /// Used to tint the MacBook keyboard spill so it matches the screenshot.
     /// Filters near-white pixels and boosts saturation so light wallpapers still
     /// read as tinted rather than pure white.
-    static func averageColor(from cgImage: CGImage) -> NSColor? {
+    static func averageColor(from cgImage: CGImage) -> PlatformColor? {
         let sampleSize = 32
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
         var rawData = [UInt8](repeating: 0, count: sampleSize * sampleSize * 4)
@@ -450,16 +449,15 @@ enum PhoneStyling {
         let fg = useFiltered ? gf : g
         let fb = useFiltered ? bf : b
         let fc = useFiltered ? countF : count
-        var color = NSColor(
-            calibratedRed: CGFloat(fr) / CGFloat(fc) / 255.0,
+        var color = PlatformColor.studio(
+            red: CGFloat(fr) / CGFloat(fc) / 255.0,
             green: CGFloat(fg) / CGFloat(fc) / 255.0,
-            blue: CGFloat(fb) / CGFloat(fc) / 255.0,
-            alpha: 1
+            blue: CGFloat(fb) / CGFloat(fc) / 255.0
         )
         // Boost saturation / brightness so desaturated wallpapers still tint visibly.
-        if let srgb = color.usingColorSpace(.sRGB) {
-            var h: CGFloat = 0, s: CGFloat = 0, br: CGFloat = 0, a: CGFloat = 0
-            srgb.getHue(&h, saturation: &s, brightness: &br, alpha: &a)
+        do {
+            let comps = color.studioHueBrightness
+            var h = comps.hue, s = comps.saturation, br = comps.brightness
             if s < 0.35 {
                 s = min(s * 2.6 + 0.18, 0.85)
             } else if s < 0.6 {
@@ -467,36 +465,29 @@ enum PhoneStyling {
             }
             br = max(br, 0.82)
             // For very desaturated originals (mac_home s~0.16) this moves 0.16 -> 0.60
-            color = NSColor(hue: h, saturation: s, brightness: br, alpha: 1)
+            color = PlatformColor.studio(hue: h, saturation: s, brightness: br)
         }
         return color
     }
 
     /// Prefer a CGImage already in sRGB to keep colors 1:1.
-    static func sRGBCGImage(from nsImage: NSImage) throws -> CGImage {
-        var rect = NSRect(origin: .zero, size: nsImage.size)
-        if let cg = nsImage.cgImage(forProposedRect: &rect, context: nil, hints: nil) {
-            if let cs = cg.colorSpace, cs.name == CGColorSpace.sRGB { return cg }
-            // Convert to sRGB if needed so RealityKit's .color semantic doesn't shift hues.
-            if let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
-               let ctx = CGContext(
-                 data: nil, width: cg.width, height: cg.height,
-                 bitsPerComponent: 8, bytesPerRow: 0, space: sRGB,
-                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-               )
-            {
-                ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
-                if let converted = ctx.makeImage() { return converted }
-            }
-            return cg
-        }
-        guard let tiff = nsImage.tiffRepresentation,
-            let rep = NSBitmapImageRep(data: tiff),
-            let cg = rep.cgImage
-        else {
+    static func sRGBCGImage(from image: PlatformImage) throws -> CGImage {
+        guard let cg = PlatformImageLoader.cgImage(from: image) else {
             throw CocoaError(
                 .fileReadCorruptFile,
                 userInfo: [NSLocalizedDescriptionKey: "Could not convert image to CGImage."])
+        }
+        if let cs = cg.colorSpace, cs.name == CGColorSpace.sRGB { return cg }
+        // Convert to sRGB if needed so RealityKit's .color semantic doesn't shift hues.
+        if let sRGB = CGColorSpace(name: CGColorSpace.sRGB),
+           let ctx = CGContext(
+             data: nil, width: cg.width, height: cg.height,
+             bitsPerComponent: 8, bytesPerRow: 0, space: sRGB,
+             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+           )
+        {
+            ctx.draw(cg, in: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+            if let converted = ctx.makeImage() { return converted }
         }
         return cg
     }
