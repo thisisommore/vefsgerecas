@@ -26,6 +26,24 @@ enum PhoneStyling {
         }
     }
 
+    /// One-time geometry fix for the MacBook keyboard legends. In
+    /// MacBookPro.usdc the legend text (KeyboardDetail, y 0.11126-0.11200)
+    /// sits only 0.00046 above the keycap well floor (Keys, y 0.1108) and
+    /// clips the chamfer ring (y 0.11150), so after scene scaling and at
+    /// grazing angles the glyphs z-fight into ragged "ghost" copies. The
+    /// glyphs have no x/z overlap with the bevel rings (>= 0.1127) or the
+    /// cap top (0.11446), so lifting the mesh is collision-free. Idempotent
+    /// enough: called once at model load, not per material refresh.
+    static func liftKeyboardLegends(on entity: Entity, dy: Float = 0.002) {
+        if entity.name.lowercased() == "keyboarddetail" {
+            entity.position.y += dy
+            return
+        }
+        for child in entity.children {
+            liftKeyboardLegends(on: child, dy: dy)
+        }
+    }
+
     static func applyGroundingShadows(to entity: Entity) {
         if entity.components.has(ModelComponent.self) {
             entity.components.set(

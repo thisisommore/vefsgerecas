@@ -216,6 +216,7 @@ final class OffscreenSceneRenderer {
         } else {
             displayAverageColor = nil
         }
+        PhoneStyling.liftKeyboardLegends(on: model)
         PhoneStyling.applyMaterials(to: model, device: inputs.device, finish: inputs.finish, displayTexture: displayTexture, lidGlow: lidRig?.glowFactor ?? 0, displayAverageColor: displayAverageColor)
         lastAppliedColor = displayAverageColor
         PhoneStyling.applyGroundingShadows(to: model)

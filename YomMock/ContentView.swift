@@ -227,6 +227,7 @@ struct ContentView: View {
                     model.name = store.device.modelResource
                     scene.phone = model
                     scene.framePhone(model, targetSize: store.device.frameTargetSize)
+                    PhoneStyling.liftKeyboardLegends(on: model)
                     PhoneStyling.applyMaterials(
                         to: model,
                         device: store.device,
