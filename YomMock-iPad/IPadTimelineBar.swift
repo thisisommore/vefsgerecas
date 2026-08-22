@@ -28,6 +28,15 @@ struct IPadTimelineBar: View {
         .padding(.bottom, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: timeline.isPlaying)
+        .background(
+            // Hardware keyboard: spacebar toggles play/pause.
+            Button(action: timeline.togglePlay) { EmptyView() }
+                .keyboardShortcut(.space, modifiers: [])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .disabled(timeline.checkpoints.count < 2 && !timeline.isPlaying)
+        )
     }
 
     // MARK: - Controls row
@@ -87,6 +96,12 @@ struct IPadTimelineBar: View {
                 .monospacedDigit()
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
+            Text("·")
+                .foregroundStyle(.tertiary)
+            Text("f\(timeline.currentFrame)")
+                .monospacedDigit()
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
         }
         .foregroundStyle(.primary)
     }
@@ -107,27 +122,51 @@ struct IPadTimelineBar: View {
     }
 
     private var lengthStepper: some View {
-        Menu {
-            ForEach([4, 6, 8, 12, 20, 30, 60], id: \.self) { seconds in
-                Button("\(seconds)s") {
-                    timeline.setDuration(TimeInterval(seconds))
-                }
-                .disabled(seconds < Int(timeline.minDuration) || timeline.isPlaying)
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "timer")
-                    .font(.system(size: 13, weight: .semibold))
-                Text(timeline.formatted(timeline.duration))
-                    .monospacedDigit()
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+        HStack(spacing: 8) {
+            HStack(spacing: 2) {
+                TextField(
+                    "Duration",
+                    value: durationBinding,
+                    format: .number.precision(.fractionLength(0...2))
+                )
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .frame(width: 42)
+                Text("s")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
             .background(Color.primary.opacity(0.06), in: Capsule())
+            .disabled(timeline.isPlaying)
+
+            Menu {
+                ForEach([4, 6, 8, 12, 20, 30, 60], id: \.self) { seconds in
+                    Button("\(seconds)s") {
+                        timeline.setDuration(TimeInterval(seconds))
+                    }
+                    .disabled(seconds < Int(timeline.minDuration) || timeline.isPlaying)
+                }
+            } label: {
+                Image(systemName: "timer")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 9)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+            }
+            .disabled(timeline.isPlaying)
         }
-        .disabled(timeline.isPlaying)
         .accessibilityLabel("Timeline length")
+    }
+
+    private var durationBinding: Binding<Double> {
+        Binding(
+            get: { timeline.duration },
+            set: { timeline.setDuration($0) }
+        )
     }
 
     // MARK: - Track

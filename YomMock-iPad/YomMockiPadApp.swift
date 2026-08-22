@@ -14,9 +14,6 @@ struct YomMockiPadApp: App {
     var body: some Scene {
         WindowGroup {
             IPadRootView(store: store)
-                .onOpenURL { url in
-                    store.importProject(from: url)
-                }
         }
     }
 }

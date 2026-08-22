@@ -207,12 +207,14 @@ struct ContentView: View {
                     userMovedCamera = true
                     scene.hasUserInteracted = true
                     scene.pan(by: delta)
+                    store.markDirty()
                 },
                 onOrbit: { delta in
                     guard !store.timeline.isPlaying else { return }
                     userMovedCamera = true
                     scene.hasUserInteracted = true
                     scene.orbit(by: delta)
+                    store.markDirty()
                 }
             )
             WASDZoomCatcher(

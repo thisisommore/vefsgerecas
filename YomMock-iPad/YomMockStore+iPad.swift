@@ -66,6 +66,33 @@ extension YomMockStore {
         return projectError == nil ? url : nil
     }
 
+    /// Saves the project under a new name inside Documents/Projects, updating
+    /// `projectURL`/`displayName`. When the name changed and the previous
+    /// file lives in the same Projects directory, the old file is removed.
+    @discardableResult
+    func saveProjectToSandboxAs(_ newName: String) -> URL? {
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? fm.temporaryDirectory
+        let projectsDir = docs.appendingPathComponent("Projects", isDirectory: true)
+        try? fm.createDirectory(at: projectsDir, withIntermediateDirectories: true)
+        let url = projectsDir
+            .appendingPathComponent(trimmed)
+            .appendingPathExtension("yommock")
+        let previousURL = projectURL
+        performSave(to: url)
+        guard projectError == nil else { return nil }
+        if let previousURL, previousURL != url,
+            previousURL.deletingLastPathComponent().standardizedFileURL
+                == projectsDir.standardizedFileURL
+        {
+            try? fm.removeItem(at: previousURL)
+        }
+        return url
+    }
+
     /// Renders the current frame offscreen at 4K class and writes it to a
     /// temporary PNG ready for the share sheet.
     func exportFrameForSharing() async throws -> URL {

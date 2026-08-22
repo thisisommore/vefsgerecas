@@ -31,6 +31,10 @@ struct IPadRootView: View {
     @State private var showOpenImporter = false
     @State private var showImageImporter = false
     @State private var showNewConfirm = false
+    @State private var showOpenConfirm = false
+    @State private var pendingOpenURL: URL?
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
     @State private var showSavedToast = false
     @State private var savedToastTask: Task<Void, Never>?
     @State private var photoItem: PhotosPickerItem?
@@ -45,7 +49,12 @@ struct IPadRootView: View {
                 showOpenImporter: $showOpenImporter,
                 showImageImporter: $showImageImporter,
                 showNewConfirm: $showNewConfirm,
-                sharePayload: $sharePayload
+                showOpenConfirm: $showOpenConfirm,
+                pendingOpenURL: $pendingOpenURL,
+                showRenameAlert: $showRenameAlert,
+                renameText: $renameText,
+                sharePayload: $sharePayload,
+                onSaved: showSavedToastBriefly
             )
             .storeChangeWatchers(store: store, photoItem: $photoItem)
             .sceneChangeWatchers(
@@ -71,6 +80,14 @@ struct IPadRootView: View {
             )
             .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.isExportingVideo)
             .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.showVideoSuccess)
+            .onOpenURL { url in
+                if store.isDirty {
+                    pendingOpenURL = url
+                    showOpenConfirm = true
+                } else {
+                    store.importProject(from: url)
+                }
+            }
             .onAppear {
                 store.previewPointSizeProvider = { [self] in viewportSize }
                 store.previewBackingScaleProvider = { [self] in viewportScale }
@@ -86,6 +103,14 @@ struct IPadRootView: View {
             .overlay(alignment: .bottom) { bottomChrome.padding(.bottom, 8) }
             .overlay(alignment: .trailing) { inspectorColumn }
             .overlay(alignment: .bottom) { savedToast }
+            .sheet(isPresented: $showInspectorSheet) {
+                IPadInspectorPanel(
+                    store: store,
+                    displayStatus: $displayStatus,
+                    onPickFromFiles: { showImageImporter = true }
+                )
+                .presentationDetents([.medium, .large])
+            }
     }
 
     private var editorStage: some View {
@@ -97,6 +122,7 @@ struct IPadRootView: View {
             videoExportOverlays
             displayStatusOverlay
         }
+        .onDrop(of: [.fileURL, .image], isTargeted: nil, perform: handlePreviewDrop)
     }
 
     private var previewRealityView: some View {
@@ -238,26 +264,43 @@ struct IPadRootView: View {
             } label: {
                 Label("New Project", systemImage: "square.and.pencil")
             }
+            .keyboardShortcut("n")
 
             Button {
-                showOpenImporter = true
+                if store.isDirty {
+                    showOpenConfirm = true
+                } else {
+                    showOpenImporter = true
+                }
             } label: {
                 Label("Open…", systemImage: "folder")
             }
+            .keyboardShortcut("o")
 
             Button {
                 if store.saveProjectToSandbox() != nil {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    showSavedToastBriefly()
                 }
             } label: {
                 Label("Save", systemImage: "square.and.arrow.down")
             }
+            .keyboardShortcut("s")
             .disabled(!store.canSave)
+
+            Button {
+                renameText = store.displayName
+                showRenameAlert = true
+            } label: {
+                Label("Rename…", systemImage: "pencil")
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
 
             Divider()
 
             Button {
-                if let url = store.projectURL {
+                let url = store.projectURL ?? store.saveProjectToSandbox()
+                if let url {
                     sharePayload = SharePayload(items: [url])
                 }
             } label: {
@@ -301,6 +344,7 @@ struct IPadRootView: View {
             } label: {
                 Label("Share Frame as PNG", systemImage: "photo")
             }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
 
             Button {
                 store.exportVideo()
@@ -330,7 +374,14 @@ struct IPadRootView: View {
             onSaveCheckpoint: saveCheckpoint,
             onEdited: { store.markDirty() }
         )
-        .padding(.horizontal, 16)
+        .padding(.leading, 16)
+        .padding(.trailing, 16 + trailingInspectorClearance)
+    }
+
+    /// Extra trailing space so the timeline card stops short of the inspector
+    /// panel instead of extending underneath it.
+    private var trailingInspectorClearance: CGFloat {
+        horizontalSizeClass == .regular && showInspector ? 320 + 12 : 0
     }
 
     // MARK: - Inspector
@@ -411,6 +462,56 @@ struct IPadRootView: View {
         )
         store.markDirty()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private func showSavedToastBriefly() {
+        savedToastTask?.cancel()
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            showSavedToast = true
+        }
+        savedToastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+                showSavedToast = false
+            }
+        }
+    }
+
+    private func handlePreviewDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let string = item as? String {
+                    url = URL(string: string)
+                } else if let itemURL = item as? URL {
+                    url = itemURL
+                }
+                guard let url else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let image = PlatformImageLoader.image(contentsOf: url) else { return }
+                Task { @MainActor in
+                    store.displayFileName = url.lastPathComponent
+                    store.displayImage = image
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                guard let image = object as? UIImage else { return }
+                Task { @MainActor in
+                    store.displayFileName = "Dropped image"
+                    store.displayImage = image
+                }
+            }
+            return true
+        }
+        return false
     }
 
     private func applyEvaluatedPose() {
@@ -617,7 +718,21 @@ private struct EditorSheetsAndAlerts: ViewModifier {
     @Binding var showOpenImporter: Bool
     @Binding var showImageImporter: Bool
     @Binding var showNewConfirm: Bool
+    @Binding var showOpenConfirm: Bool
+    @Binding var pendingOpenURL: URL?
+    @Binding var showRenameAlert: Bool
+    @Binding var renameText: String
     @Binding var sharePayload: SharePayload?
+    var onSaved: () -> Void
+
+    private func proceedWithOpen() {
+        if let url = pendingOpenURL {
+            pendingOpenURL = nil
+            store.importProject(from: url)
+        } else {
+            showOpenImporter = true
+        }
+    }
 
     func body(content: Content) -> some View {
         content
@@ -669,6 +784,36 @@ private struct EditorSheetsAndAlerts: ViewModifier {
             } message: {
                 Text("Your current project has unsaved changes.")
             }
+            .confirmationDialog(
+                "Open Project",
+                isPresented: $showOpenConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Discard Changes & Open", role: .destructive) {
+                    proceedWithOpen()
+                }
+                Button("Save Current First") {
+                    store.saveProjectToSandbox()
+                    if !store.isDirty {
+                        proceedWithOpen()
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingOpenURL = nil
+                }
+            } message: {
+                Text("Your current project has unsaved changes.")
+            }
+            .alert("Rename Project", isPresented: $showRenameAlert) {
+                TextField("Project name", text: $renameText)
+                Button("Save") {
+                    if store.saveProjectToSandboxAs(renameText) != nil {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        onSaved()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .alert(
                 "Error",
                 isPresented: Binding(
@@ -689,7 +834,12 @@ private extension View {
         showOpenImporter: Binding<Bool>,
         showImageImporter: Binding<Bool>,
         showNewConfirm: Binding<Bool>,
-        sharePayload: Binding<SharePayload?>
+        showOpenConfirm: Binding<Bool>,
+        pendingOpenURL: Binding<URL?>,
+        showRenameAlert: Binding<Bool>,
+        renameText: Binding<String>,
+        sharePayload: Binding<SharePayload?>,
+        onSaved: @escaping () -> Void
     ) -> some View {
         modifier(
             EditorSheetsAndAlerts(
@@ -697,7 +847,12 @@ private extension View {
                 showOpenImporter: showOpenImporter,
                 showImageImporter: showImageImporter,
                 showNewConfirm: showNewConfirm,
-                sharePayload: sharePayload
+                showOpenConfirm: showOpenConfirm,
+                pendingOpenURL: pendingOpenURL,
+                showRenameAlert: showRenameAlert,
+                renameText: renameText,
+                sharePayload: sharePayload,
+                onSaved: onSaved
             )
         )
     }

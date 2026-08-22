@@ -8,6 +8,7 @@
 
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct IPadInspectorPanel: View {
     @Bindable var store: YomMockStore
@@ -15,6 +16,7 @@ struct IPadInspectorPanel: View {
     var onPickFromFiles: () -> Void
 
     @State private var photoItem: PhotosPickerItem?
+    @State private var isDropTargeted = false
 
     var body: some View {
         ScrollView {
@@ -140,6 +142,24 @@ struct IPadInspectorPanel: View {
                         RoundedRectangle(cornerRadius: 14)
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                     }
+                    .onDrop(
+                        of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop
+                    )
+                    .overlay(alignment: .topTrailing) {
+                        Button(role: .destructive) {
+                            store.displayImage = nil
+                            store.displayFileName = nil
+                            displayStatus = nil
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 28, height: 28)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .padding(10)
+                        .accessibilityLabel("Remove screenshot")
+                    }
 
                     Text(store.displayFileName ?? "Screenshot")
                         .font(.system(size: 12, weight: .medium))
@@ -147,37 +167,29 @@ struct IPadInspectorPanel: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
                         PhotosPicker(selection: $photoItem, matching: .images) {
-                            Label("Change", systemImage: "photo")
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 9)
-                                .background(Color.accentColor.opacity(0.14), in: Capsule())
+                            actionCapsule(
+                                "Change", systemImage: "photo",
+                                tint: Color.accentColor.opacity(0.14))
                         }
 
                         Button {
                             onPickFromFiles()
                         } label: {
-                            Label("Files", systemImage: "folder")
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 9)
-                                .background(Color.primary.opacity(0.06), in: Capsule())
+                            actionCapsule(
+                                "Files", systemImage: "folder",
+                                tint: Color.primary.opacity(0.06))
                         }
 
-                        Spacer()
-
-                        Button(role: .destructive) {
-                            store.displayImage = nil
-                            store.displayFileName = nil
-                            displayStatus = nil
+                        Button {
+                            pasteFromClipboard()
                         } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 38, height: 38)
-                                .background(Color.red.opacity(0.1), in: Circle())
+                            actionCapsule(
+                                "Paste", systemImage: "doc.on.clipboard",
+                                tint: Color.primary.opacity(0.06))
                         }
+                        .disabled(!UIPasteboard.general.hasImages)
                     }
                 }
             } else {
@@ -201,12 +213,15 @@ struct IPadInspectorPanel: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 14)
                             .strokeBorder(
-                                Color.primary.opacity(0.14),
+                                isDropTargeted ? Color.accentColor : Color.primary.opacity(0.14),
                                 style: StrokeStyle(lineWidth: 1, dash: [6, 5])
                             )
                     }
                 }
                 .buttonStyle(.plain)
+                .onDrop(
+                    of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop
+                )
             }
 
             if let displayStatus {
@@ -264,6 +279,70 @@ struct IPadInspectorPanel: View {
             Text(subtitle)
                 .font(.system(size: 16, weight: .semibold))
         }
+    }
+
+    private func actionCapsule(_ title: String, systemImage: String, tint: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 13, weight: .semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(tint, in: Capsule())
+    }
+
+    private func pasteFromClipboard() {
+        if let image = UIPasteboard.general.image {
+            store.displayFileName = "Pasted image"
+            store.displayImage = image
+            displayStatus = nil
+        } else {
+            displayStatus = "No image found on clipboard."
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let string = item as? String {
+                    url = URL(string: string)
+                } else if let itemURL = item as? URL {
+                    url = itemURL
+                }
+                guard let url else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let image = PlatformImageLoader.image(contentsOf: url) else {
+                    Task { @MainActor in displayStatus = "Could not load dropped file." }
+                    return
+                }
+                Task { @MainActor in
+                    store.displayFileName = url.lastPathComponent
+                    store.displayImage = image
+                    displayStatus = nil
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                guard let image = object as? UIImage else {
+                    Task { @MainActor in displayStatus = "Could not load dropped image." }
+                    return
+                }
+                Task { @MainActor in
+                    store.displayFileName = "Dropped image"
+                    store.displayImage = image
+                    displayStatus = nil
+                }
+            }
+            return true
+        }
+        return false
     }
 }
 
