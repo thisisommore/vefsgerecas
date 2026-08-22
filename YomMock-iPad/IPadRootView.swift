@@ -437,6 +437,12 @@ struct IPadRootView: View {
             content.add(entities.ibl)
             content.add(entities.model)
 
+            // Re-apply materials in case the display texture finished
+            // loading while the model was still loading — the styling
+            // above was captured before the await with a nil texture.
+            scene.lidRig?.displayOn = displayTexture != nil
+            refreshMaterials()
+
             let initial = store.timeline.evaluatedState(at: 0)
             scene.apply(orbit: initial.orbit, zoom: initial.zoom, pan: initial.pan)
             Task { @MainActor in
