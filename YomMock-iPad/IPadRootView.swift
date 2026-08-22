@@ -63,6 +63,7 @@ struct IPadRootView: View {
                     if store.displayFileName == oldDevice.defaultDisplayImageName {
                         store.loadDefaultDisplayImage(for: newDevice)
                     }
+                    store.swapDefaultTimelineIfNeeded(from: oldDevice, to: newDevice)
                 },
                 refreshMaterials: refreshMaterials,
                 applyZoomToScene: { value in

@@ -89,15 +89,33 @@ final class CameraTimeline {
     /// Default timeline for any new project, shared by Mac and iPad —
     /// 3 checkpoints with pan (baked from the original default.yommock).
     /// Tests use single-checkpoint init.
-    static var demo: CameraTimeline {
+    static var demo: CameraTimeline { demo(for: .iPhone) }
+
+    /// Per-device default demo. The MacBook variant zeroes the pan offsets:
+    /// they were tuned for the tall iPhone, whose center can sit high without
+    /// leaving the frame — the wide, short MacBook (normalized by width)
+    /// ends up floating above the camera's view.
+    static func demo(for device: Device) -> CameraTimeline {
         let t = CameraTimeline(duration: defaultDuration)
+        let zeroPan = device == .macBookPro
         t.checkpoints = [
-            CameraCheckpoint(time: 0, pose: OrbitPose(yaw: 5.9604645e-08, pitch: 0.015000127, radius: 4.2), zoom: 1.45, pan: SIMD3<Float>(0.13746285, 2.1615605, -0.21351019)),
-            CameraCheckpoint(time: 3.9698507018008478, pose: OrbitPose(yaw: 0.5499067, pitch: 0.51991427, radius: 4.9998646), zoom: 1.0800627, pan: SIMD3<Float>(0.044968747, -0.3081803, 0.17958263)),
+            CameraCheckpoint(time: 0, pose: OrbitPose(yaw: 5.9604645e-08, pitch: 0.015000127, radius: 4.2), zoom: 1.45, pan: zeroPan ? .zero : SIMD3<Float>(0.13746285, 2.1615605, -0.21351019)),
+            CameraCheckpoint(time: 3.9698507018008478, pose: OrbitPose(yaw: 0.5499067, pitch: 0.51991427, radius: 4.9998646), zoom: 1.0800627, pan: zeroPan ? .zero : SIMD3<Float>(0.044968747, -0.3081803, 0.17958263)),
             CameraCheckpoint(time: 8, pose: OrbitPose(yaw: 1.75, pitch: 0.18, radius: 4.6), zoom: 0.75971884, pan: .zero),
         ]
         t.selectedCheckpointID = t.checkpoints.first?.id
         return t
+    }
+
+    /// Whether this timeline still matches the untouched per-device default
+    /// demo. Checkpoint UUIDs are random per generation, so values only.
+    func isDefaultDemo(for device: Device) -> Bool {
+        let demo = CameraTimeline.demo(for: device)
+        guard duration == demo.duration, checkpoints.count == demo.checkpoints.count else { return false }
+        return zip(checkpoints, demo.checkpoints).allSatisfy { a, b in
+            a.time == b.time && a.pose == b.pose && a.zoom == b.zoom
+                && a.pan == b.pan && a.lidAngle == b.lidAngle
+        }
     }
 
     var minDuration: TimeInterval {

@@ -197,7 +197,7 @@ final class YomMockStore {
         background = .white
         customBackground = Color.white
         zoom = 1
-        timeline = CameraTimeline.demo
+        timeline = CameraTimeline.demo(for: .iPhone)
         displayImage = nil
         displayFileName = nil
         projectURL = nil
@@ -205,6 +205,14 @@ final class YomMockStore {
         lastSavedSnapshot = makeDocument()
         isDirty = false
         projectError = nil
+    }
+
+    /// On a device switch, if the timeline is still the untouched default demo
+    /// for the old device, swap in the new device's default demo (mirrors the
+    /// default screenshot swap in the platform views).
+    func swapDefaultTimelineIfNeeded(from oldDevice: Device, to newDevice: Device) {
+        guard timeline.isDefaultDemo(for: oldDevice) else { return }
+        timeline = CameraTimeline.demo(for: newDevice)
     }
 
     func performSave(to url: URL) {

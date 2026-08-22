@@ -85,6 +85,7 @@ struct ContentView: View {
             if store.displayFileName == oldDevice.defaultDisplayImageName {
                 store.loadDefaultDisplayImage(for: newDevice)
             }
+            store.swapDefaultTimelineIfNeeded(from: oldDevice, to: newDevice)
             store.markDirty()
         }
         .onChange(of: store.selectedColor) { _, _ in
