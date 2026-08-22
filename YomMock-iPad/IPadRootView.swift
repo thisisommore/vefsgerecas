@@ -100,14 +100,14 @@ struct IPadRootView: View {
     private var stageWithChrome: some View {
         editorStage
             .ignoresSafeArea()
-            .overlay(alignment: .top) {
-                topChrome
-                    .padding(.top, 8)
-                    .padding(.trailing, trailingInspectorClearance)
-            }
+            .overlay(alignment: .top) { topChrome.padding(.top, 8) }
             .overlay(alignment: .bottom) { bottomChrome.padding(.bottom, 8) }
-            .overlay(alignment: .trailing) { inspectorColumn }
             .overlay(alignment: .bottom) { savedToast }
+            // Shrink stage + chrome clear of the inspector panel instead of
+            // letting them underflow it. Overlays above shrink with the stage;
+            // the inspector below overlays the full width.
+            .padding(.trailing, trailingInspectorClearance)
+            .overlay(alignment: .trailing) { inspectorColumn }
             .sheet(isPresented: $showInspectorSheet) {
                 IPadInspectorPanel(
                     store: store,
@@ -379,12 +379,11 @@ struct IPadRootView: View {
             onSaveCheckpoint: saveCheckpoint,
             onEdited: { store.markDirty() }
         )
-        .padding(.leading, 16)
-        .padding(.trailing, 16 + trailingInspectorClearance)
+        .padding(.horizontal, 16)
     }
 
-    /// Extra trailing space so the timeline card stops short of the inspector
-    /// panel instead of extending underneath it.
+    /// Extra trailing space so the stage and its chrome stop short of the
+    /// inspector panel instead of extending underneath it.
     private var trailingInspectorClearance: CGFloat {
         horizontalSizeClass == .regular && showInspector ? 320 + 12 : 0
     }
