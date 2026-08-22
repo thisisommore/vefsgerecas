@@ -3,7 +3,7 @@
 //  YomMock-iPad
 //
 //  Touch-first timeline card: big transport controls, a tall scrub track
-//  with drag-to-retime checkpoint diamonds, and a prominent Save Checkpoint
+//  with hold-to-retime checkpoint diamonds, and a prominent Save Checkpoint
 //  action. Everything is ≥44 pt for finger use.
 //
 
@@ -191,7 +191,7 @@ struct IPadTimelineBar: View {
 
                 tickMarks(width: width)
 
-                ForEach(timeline.checkpoints) { checkpoint in
+                ForEach(timeline.checkpoints.sorted { $0.time < $1.time }) { checkpoint in
                     diamond(for: checkpoint, width: width, height: height)
                 }
 
@@ -213,9 +213,12 @@ struct IPadTimelineBar: View {
             .frame(width: 16, height: 16)
             .scaleEffect(isDragging ? 1.25 : 1)
             .shadow(color: .black.opacity(0.2), radius: 1.5, y: 1)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle().inset(by: -14))
+            // Invisible padding makes a 44×44 touch target without the
+            // full-size frame that used to swallow every track touch.
+            .padding(14)
+            .contentShape(Rectangle())
             .position(x: x(for: checkpoint.time, width: width), y: height / 2)
+            .zIndex(isDragging || isSelected ? 1 : 0)
             .onTapGesture {
                 timeline.select(checkpoint)
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -223,29 +226,40 @@ struct IPadTimelineBar: View {
             .gesture(retimeGesture(for: checkpoint, width: width))
     }
 
+    /// Hold a diamond (~0.25 s) to grab it, then drag to retime. A plain tap
+    /// selects/seeks and a drag elsewhere on the track scrubs — retiming can
+    /// no longer trigger by accident.
     private func retimeGesture(for checkpoint: CameraCheckpoint, width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 6)
+        LongPressGesture(minimumDuration: 0.25)
+            .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { value in
-                guard !timeline.isPlaying, draggingCheckpointID == nil || draggingCheckpointID == checkpoint.id else { return }
-                if draggingCheckpointID == nil {
+                guard !timeline.isPlaying else { return }
+                switch value {
+                case .first(true):
                     draggingCheckpointID = checkpoint.id
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    timeline.select(checkpoint)
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                case .second(true, .some(let drag)):
+                    guard draggingCheckpointID == checkpoint.id else { return }
+                    let dt = Double(drag.translation.width / max(width, 1)) * timeline.duration
+                    let sorted = timeline.checkpoints.sorted { $0.time < $1.time }
+                    guard let index = sorted.firstIndex(where: { $0.id == checkpoint.id }) else { return }
+                    let lower = index > 0 ? sorted[index - 1].time + CameraTimeline.snapTolerance * 2 : 0
+                    let upper =
+                        index < sorted.count - 1
+                        ? sorted[index + 1].time - CameraTimeline.snapTolerance * 2 : timeline.duration
+                    let newTime = min(max(checkpoint.time + dt, lower), upper)
+                    timeline.moveCheckpoint(id: checkpoint.id, to: newTime)
+                    timeline.seek(to: newTime)
+                default:
+                    break
                 }
-                let dt = Double(value.translation.width / max(width, 1)) * timeline.duration
-                let sorted = timeline.checkpoints.sorted { $0.time < $1.time }
-                guard let index = sorted.firstIndex(where: { $0.id == checkpoint.id }) else { return }
-                let lower = index > 0 ? sorted[index - 1].time + CameraTimeline.snapTolerance * 2 : 0
-                let upper =
-                    index < sorted.count - 1
-                    ? sorted[index + 1].time - CameraTimeline.snapTolerance * 2 : timeline.duration
-                timeline.moveCheckpoint(id: checkpoint.id, to: min(max(checkpoint.time + dt, lower), upper))
             }
             .onEnded { _ in
-                if draggingCheckpointID != nil {
-                    timeline.finishReorder()
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
+                guard draggingCheckpointID == checkpoint.id else { return }
                 draggingCheckpointID = nil
+                timeline.finishReorder()
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 onEdited()
             }
     }
