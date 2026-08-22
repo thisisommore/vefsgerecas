@@ -99,7 +99,11 @@ struct IPadRootView: View {
     private var stageWithChrome: some View {
         editorStage
             .ignoresSafeArea()
-            .overlay(alignment: .top) { topChrome.padding(.top, 8) }
+            .overlay(alignment: .top) {
+                topChrome
+                    .padding(.top, 8)
+                    .padding(.trailing, trailingInspectorClearance)
+            }
             .overlay(alignment: .bottom) { bottomChrome.padding(.bottom, 8) }
             .overlay(alignment: .trailing) { inspectorColumn }
             .overlay(alignment: .bottom) { savedToast }
