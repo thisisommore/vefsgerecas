@@ -148,12 +148,31 @@ enum PlatformImageLoader {
 
     /// PNG-encoded data for a CGImage (ImageIO works on every platform).
     static func pngData(from cgImage: CGImage) -> Data? {
+        imageData(from: cgImage, type: "public.png")
+    }
+
+    /// WebP-encoded data for a CGImage. Requires macOS 11+ / iOS 14+.
+    /// Falls back to PNG when the WebP destination is unavailable.
+    static func webPData(from cgImage: CGImage, lossy: Bool = false, quality: Double = 1.0) -> Data? {
+        // Try native WebP via ImageIO; if unavailable, fall back to PNG.
+        if let data = imageData(from: cgImage, type: "org.webmproject.webp", quality: lossy ? quality : nil) {
+            return data
+        }
+        return pngData(from: cgImage)
+    }
+
+    /// Generic ImageIO encoder — supports PNG (lossless), WebP, JPEG, HEIC, etc.
+    static func imageData(from cgImage: CGImage, type: String, quality: Double? = nil) -> Data? {
         let out = NSMutableData()
         guard
             let dest = CGImageDestinationCreateWithData(
-                out as CFMutableData, "public.png" as CFString, 1, nil)
+                out as CFMutableData, type as CFString, 1, nil)
         else { return nil }
-        CGImageDestinationAddImage(dest, cgImage, nil)
+        var props: [String: Any]? = nil
+        if let quality {
+            props = [kCGImageDestinationLossyCompressionQuality as String: quality]
+        }
+        CGImageDestinationAddImage(dest, cgImage, props as CFDictionary?)
         guard CGImageDestinationFinalize(dest) else { return nil }
         return out as Data
     }

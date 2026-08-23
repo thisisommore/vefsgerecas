@@ -52,6 +52,27 @@ final class YomMockStore {
     var pendingVideoExportURL: URL?
     var pendingVideoOptions = VideoExportOptions()
     var showVideoOptions = false
+    var pendingFrameFormat: FrameExportFormat = .png
+    var pendingFrameTransparent: Bool = false
+    var showFrameOptions = false
+
+    enum FrameExportFormat: String, CaseIterable, Identifiable {
+        case png = "PNG"
+        case webp = "WebP"
+        var id: String { rawValue }
+        var fileExtension: String {
+            switch self {
+            case .png: return "png"
+            case .webp: return "webp"
+            }
+        }
+        var utType: String {
+            switch self {
+            case .png: return "public.png"
+            case .webp: return "org.webmproject.webp"
+            }
+        }
+    }
     /// Cached offscreen renderer for "Export Current Frame" stills — reused
     /// across exports so the USDZ + IBL setup cost is paid only once.
     @ObservationIgnored private var stillRenderer: OffscreenSceneRenderer?
@@ -369,7 +390,7 @@ final class YomMockStore {
 
     /// Snapshot of everything the offscreen renderer needs — safe to keep
     /// editing the project while an export runs.
-    func makeSceneInputs() -> OffscreenSceneRenderer.Inputs {
+    func makeSceneInputs(transparentBackground: Bool = false) -> OffscreenSceneRenderer.Inputs {
         let gradient = background.gradient(custom: customBackground)
         let top = platformColor(gradient.top)
         let bottom = platformColor(gradient.bottom)
@@ -379,7 +400,8 @@ final class YomMockStore {
             finish: selectedColor.finish(custom: customColor),
             displayImage: displayCG,
             backgroundTop: top,
-            backgroundBottom: bottom
+            backgroundBottom: bottom,
+            transparentBackground: transparentBackground
         )
     }
 
@@ -393,9 +415,12 @@ final class YomMockStore {
 
     /// Renders the current timeline state offscreen at 4K class and returns
     /// the PNG-encoded data plus the render size. No UI.
-    func renderFramePNGData() async throws -> Data {
+
+
+    /// Renders current timeline state offscreen. Supports transparent background (for WebP/PNG).
+    func renderFrameData(format: FrameExportFormat = .png, transparentBackground: Bool = false) async throws -> Data {
         let previewPoints = previewPointSize()
-        var inputs = makeSceneInputs()
+        var inputs = makeSceneInputs(transparentBackground: transparentBackground)
         // Live recording: sample the exact frame on screen right now so the
         // exported still matches what the user sees.
         if let video = displayVideo {
@@ -405,7 +430,7 @@ final class YomMockStore {
         let state = timeline.evaluatedState()
         let size = VideoExportOptions(resolution: .p2160).outputSize(
             previewPoints: previewPoints, backingScale: 1)
-        let key = "\(device.rawValue)-\(Int(size.width))x\(Int(size.height))"
+        let key = "\(device.rawValue)-\(Int(size.width))x\(Int(size.height))-\(format.rawValue)-\(transparentBackground ? "t" : "o")"
         if stillRenderer == nil || stillRendererKey != key {
             stillRenderer = try await OffscreenSceneRenderer(
                 outputSize: size, previewPointSize: previewPoints, inputs: inputs)
@@ -420,10 +445,25 @@ final class YomMockStore {
         guard let image = renderer.makeCGImage(from: buffer) else {
             throw YomMockExportError.frameEncodeFailed
         }
-        guard let data = PlatformImageLoader.pngData(from: image) else {
+        let data: Data?
+        switch format {
+        case .png:
+            data = PlatformImageLoader.pngData(from: image)
+        case .webp:
+            data = PlatformImageLoader.webPData(from: image) ?? PlatformImageLoader.pngData(from: image)
+        }
+        guard let data else {
             throw YomMockExportError.frameEncodeFailed
         }
         return data
+    }
+
+    func renderFramePNGData() async throws -> Data {
+        try await renderFrameData(format: .png, transparentBackground: false)
+    }
+
+    func renderFramePNGData(transparentBackground: Bool) async throws -> Data {
+        try await renderFrameData(format: .png, transparentBackground: transparentBackground)
     }
 
     // MARK: - Export toasts

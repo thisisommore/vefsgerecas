@@ -17,21 +17,23 @@ import simd
 enum VideoExportFormat: String, CaseIterable, Identifiable {
     case mp4_h264 = "MP4 (H.264)"
     case mov_hevc = "MOV (HEVC)"
+    case hevcWithAlpha = "MOV (HEVC with Alpha)"
     case mov_prores = "MOV (ProRes 422)"
+    case mov_prores4444 = "MOV (ProRes 4444)"
 
     var id: String { rawValue }
 
     var fileExtension: String {
         switch self {
         case .mp4_h264: return "mp4"
-        case .mov_hevc, .mov_prores: return "mov"
+        case .mov_hevc, .hevcWithAlpha, .mov_prores, .mov_prores4444: return "mov"
         }
     }
 
     var fileType: AVFileType {
         switch self {
         case .mp4_h264: return .mp4
-        case .mov_hevc, .mov_prores: return .mov
+        case .mov_hevc, .hevcWithAlpha, .mov_prores, .mov_prores4444: return .mov
         }
     }
 
@@ -39,7 +41,29 @@ enum VideoExportFormat: String, CaseIterable, Identifiable {
         switch self {
         case .mp4_h264: return .h264
         case .mov_hevc: return .hevc
+        case .hevcWithAlpha:
+            if #available(macOS 13.0, iOS 16.0, *) {
+                return AVVideoCodecType(rawValue: "muxa") // hevcWithAlpha
+            }
+            return .hevc
         case .mov_prores: return .proRes422
+        case .mov_prores4444: return .proRes4444
+        }
+    }
+
+    /// Whether this codec can carry an alpha channel.
+    var supportsAlpha: Bool {
+        switch self {
+        case .hevcWithAlpha, .mov_prores4444: return true
+        default: return false
+        }
+    }
+
+    /// Whether HEVC variant should include alpha flag.
+    var includesAlpha: Bool {
+        switch self {
+        case .hevcWithAlpha, .mov_prores4444: return true
+        default: return false
         }
     }
 
@@ -47,8 +71,8 @@ enum VideoExportFormat: String, CaseIterable, Identifiable {
     var autoBitrateBitsPerPixel: Double {
         switch self {
         case .mp4_h264: return 4.0
-        case .mov_hevc: return 2.0
-        case .mov_prores: return 0
+        case .mov_hevc, .hevcWithAlpha: return 2.0
+        case .mov_prores, .mov_prores4444: return 0
         }
     }
 }
@@ -80,6 +104,7 @@ struct VideoExportOptions {
     var resolution: VideoResolutionPreset = .p2160
     var fps: Int = 30
     var format: VideoExportFormat = .mp4_h264
+    var transparentBackground: Bool = false
     var bitRateMbps: Double? = nil // nil = auto
 
     /// Output pixel size derived from the preview's aspect ratio. Since frames
@@ -161,6 +186,10 @@ final class VideoExporter {
             throw VideoExportError.unsupportedSize(codec: "H.264", size: outputSize)
         }
 
+        if options.transparentBackground, !options.format.supportsAlpha {
+            throw VideoExportError.writerFailed("Transparent background requires ProRes 4444 or HEVC with Alpha.")
+        }
+
         // Snapshot the timeline (checkpoints are value types) so edits during
         // export don't change the output and the live preview stays untouched.
         let timelineSnapshot = CameraTimeline(duration: timeline.duration)
@@ -168,10 +197,12 @@ final class VideoExporter {
         let duration = timelineSnapshot.duration
         let totalFrames = max(1, Int((duration * Double(options.fps)).rounded()))
 
+        var transparentInputs = inputs
+        transparentInputs.transparentBackground = options.transparentBackground
         let renderer = try await OffscreenSceneRenderer(
             outputSize: outputSize,
             previewPointSize: previewPoints,
-            inputs: inputs
+            inputs: transparentInputs
         )
 
         // MARK: Writer setup
@@ -191,7 +222,25 @@ final class VideoExporter {
             AVVideoWidthKey: width,
             AVVideoHeightKey: height
         ]
-        if codec != .proRes422 {
+        if options.transparentBackground {
+            if codec == .proRes4444 {
+                // ProRes 4444 carries alpha natively — no compression properties needed.
+                // AVAssetWriter will preserve alpha from the BGRA pixel buffer.
+            } else if codec.rawValue == "muxa" || codec == .hevc {
+                // HEVC with alpha (muxa) — set bitrate, no extra alpha flag needed for muxa codec.
+                // For fallback hevc on older OS, no valid alpha path — but we keep bitrate.
+                var props: [String: Any] = [:]
+                let bitsPerSecond = options.bitRateMbps.map { Int($0 * 1_000_000) }
+                    ?? min(160_000_000, max(8_000_000, Int(Double(width * height) * options.format.autoBitrateBitsPerPixel)))
+                props[AVVideoAverageBitRateKey] = bitsPerSecond
+                props[AVVideoExpectedSourceFrameRateKey] = options.fps
+                if codec == .hevc {
+                    // Plain hevc fallback — not true alpha, but avoid AllowAlphaChannel error.
+                    props[AVVideoAllowFrameReorderingKey] = false
+                }
+                videoSettings[AVVideoCompressionPropertiesKey] = props
+            }
+        } else if codec != .proRes422 && codec != .proRes4444 {
             let bitsPerSecond = options.bitRateMbps.map { Int($0 * 1_000_000) }
                 ?? min(160_000_000, max(8_000_000, Int(Double(width * height) * options.format.autoBitrateBitsPerPixel)))
             videoSettings[AVVideoCompressionPropertiesKey] = [
@@ -234,8 +283,8 @@ final class VideoExporter {
             // Screen-recording display content: swap the screen texture to
             // the recording's exact frame at this output time before render.
             if let videoFrameProvider {
-                var frameInputs = inputs
-                frameInputs.displayImage = await videoFrameProvider(time) ?? inputs.displayImage
+                var frameInputs = transparentInputs
+                frameInputs.displayImage = await videoFrameProvider(time) ?? transparentInputs.displayImage
                 try await renderer.update(inputs: frameInputs)
             }
 

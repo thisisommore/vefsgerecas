@@ -56,6 +56,9 @@ struct ContentView: View {
         .sheet(isPresented: $store.showVideoOptions) {
             VideoExportOptionsView(store: store)
         }
+        .sheet(isPresented: $store.showFrameOptions) {
+            FrameExportOptionsView(store: store)
+        }
     }
 
     private var mainContent: some View {

@@ -86,6 +86,7 @@ final class OffscreenSceneRenderer {
         var displayImage: CGImage?
         var backgroundTop: PlatformColor
         var backgroundBottom: PlatformColor
+        var transparentBackground: Bool = false
     }
 
     let outputSize: CGSize
@@ -114,6 +115,7 @@ final class OffscreenSceneRenderer {
     // Studio backdrop gradient (resolution-exact, built once per inputs change)
     private var gradientImage: CIImage
     private let gradientScale: CGFloat
+    private var isTransparentBackground: Bool
 
     // MARK: - Init
 
@@ -178,7 +180,8 @@ final class OffscreenSceneRenderer {
         self.doneEvent = doneEvent
         self.eventListener = MTLSharedEventListener(dispatchQueue: DispatchQueue(label: "yommock.render.events"))
         self.gradientScale = gradientScale
-        self.gradientImage = Self.makeGradient(
+        self.isTransparentBackground = inputs.transparentBackground
+        self.gradientImage = inputs.transparentBackground ? CIImage.empty() : Self.makeGradient(
             top: inputs.backgroundTop,
             bottom: inputs.backgroundBottom,
             width: CGFloat(width),
@@ -288,13 +291,18 @@ final class OffscreenSceneRenderer {
         }
         lidRig?.displayOn = displayTexture != nil
         currentFinish = inputs.finish
-        gradientImage = Self.makeGradient(
-            top: inputs.backgroundTop,
-            bottom: inputs.backgroundBottom,
-            width: outputSize.width,
-            height: outputSize.height,
-            scale: gradientScale
-        )
+        isTransparentBackground = inputs.transparentBackground
+        if inputs.transparentBackground {
+            gradientImage = CIImage.empty()
+        } else {
+            gradientImage = Self.makeGradient(
+                top: inputs.backgroundTop,
+                bottom: inputs.backgroundBottom,
+                width: outputSize.width,
+                height: outputSize.height,
+                scale: gradientScale
+            )
+        }
     }
 
     // MARK: - Rendering
@@ -328,27 +336,38 @@ final class OffscreenSceneRenderer {
         frameCounter &+= 1
         let frameValue = frameCounter
 
-        // 1) Studio gradient into the pixel buffer. CIContext cannot render
-        //    into MTLTexture destinations on macOS 26 ("The destination is
-        //    nil" — silently producing transparent frames), so render into
-        //    the buffer's IOSurface instead. The wait runs off the main
-        //    actor; its completion also orders the gradient's GPU writes
-        //    before RealityKit renders over the texture below.
-        guard let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() else {
-            throw OffscreenRenderError.pixelBufferFailed
-        }
-        let destination = CIRenderDestination(ioSurface: surface)
-        destination.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        let gradientJob = GradientRenderJob(
-            context: ciContext,
-            image: gradientImage,
-            bounds: CGRect(x: 0, y: 0, width: width, height: height),
-            destination: destination
-        )
-        do {
-            try await Task.detached(priority: .userInitiated) { try gradientJob.run() }.value
-        } catch {
-            throw OffscreenRenderError.renderFailed(error.localizedDescription)
+        if isTransparentBackground {
+            // Clear to fully transparent (0,0,0,0) — device will be composited over it.
+            CVPixelBufferLockBaseAddress(pixelBuffer, [])
+            if let base = CVPixelBufferGetBaseAddress(pixelBuffer) {
+                let bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer)
+                let height = CVPixelBufferGetHeight(pixelBuffer)
+                memset(base, 0, bytesPerRow * height)
+            }
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
+        } else {
+            // 1) Studio gradient into the pixel buffer. CIContext cannot render
+            //    into MTLTexture destinations on macOS 26 ("The destination is
+            //    nil" — silently producing transparent frames), so render into
+            //    the buffer's IOSurface instead. The wait runs off the main
+            //    actor; its completion also orders the gradient's GPU writes
+            //    before RealityKit renders over the texture below.
+            guard let surface = CVPixelBufferGetIOSurface(pixelBuffer)?.takeUnretainedValue() else {
+                throw OffscreenRenderError.pixelBufferFailed
+            }
+            let destination = CIRenderDestination(ioSurface: surface)
+            destination.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+            let gradientJob = GradientRenderJob(
+                context: ciContext,
+                image: gradientImage,
+                bounds: CGRect(x: 0, y: 0, width: width, height: height),
+                destination: destination
+            )
+            do {
+                try await Task.detached(priority: .userInitiated) { try gradientJob.run() }.value
+            } catch {
+                throw OffscreenRenderError.renderFailed(error.localizedDescription)
+            }
         }
 
         // 2) Camera pose + lid on the offscreen scene, then render over the gradient.

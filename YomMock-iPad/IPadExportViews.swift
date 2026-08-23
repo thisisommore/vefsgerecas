@@ -38,6 +38,24 @@ struct IPadVideoExportOptionsView: View {
                 Section("Frame Rate") {
                     fpsPicker
                 }
+                Section("Background") {
+                    Toggle(isOn: $store.pendingVideoOptions.transparentBackground) {
+                        Label("Transparent background", systemImage: "checkerboard.rectangle")
+                    }
+                    .onChange(of: store.pendingVideoOptions.transparentBackground) { _, isOn in
+                        if isOn && !store.pendingVideoOptions.format.supportsAlpha {
+                            store.pendingVideoOptions.format = .mov_prores4444
+                        }
+                    }
+                    Text("Removes the studio gradient — device over clear alpha. Requires ProRes 4444 or HEVC with Alpha.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if store.pendingVideoOptions.transparentBackground && !store.pendingVideoOptions.format.supportsAlpha {
+                        Label("Transparent needs ProRes 4444 or HEVC with Alpha.", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption)
+                    }
+                }
                 Section {
                     outputSummary
                 } footer: {
@@ -49,6 +67,10 @@ struct IPadVideoExportOptionsView: View {
                 if h264TooLarge {
                     Label("H.264 supports up to 4K — choose HEVC or ProRes for 8K.", systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
+                }
+                if store.pendingVideoOptions.transparentBackground && !store.pendingVideoOptions.format.supportsAlpha {
+                    Label("Transparent background requires ProRes 4444 or HEVC with Alpha.", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
                 }
             }
             .navigationTitle("Export Video")
@@ -251,3 +273,69 @@ struct IPadVideoSuccessToast: View {
         }
     }
 }
+
+// MARK: - Frame export options (iPad)
+
+struct IPadFrameExportOptionsView: View {
+    @Bindable var store: YomMockStore
+    @Environment(\.dismiss) private var dismiss
+    var onShare: (URL) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Format") {
+                    Picker("Format", selection: $store.pendingFrameFormat) {
+                        ForEach(YomMockStore.FrameExportFormat.allCases) { fmt in
+                            Text(fmt.rawValue).tag(fmt)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(fmtDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section("Background") {
+                    Toggle(isOn: $store.pendingFrameTransparent) {
+                        Label("Transparent background", systemImage: "checkerboard.rectangle")
+                    }
+                    Text("Removes the studio gradient — device composited over clear alpha. Works with PNG and WebP.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Section {
+                    Button {
+                        Task {
+                            do {
+                                let url = try await store.exportFrameForSharing()
+                                dismiss()
+                                onShare(url)
+                            } catch {
+                                store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                            }
+                        }
+                    } label: {
+                        Label("Share Frame as \(store.pendingFrameFormat.rawValue)\(store.pendingFrameTransparent ? " (transparent)" : "")", systemImage: "square.and.arrow.up")
+                    }
+                }
+            }
+            .navigationTitle("Share Frame")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var fmtDescription: String {
+        switch store.pendingFrameFormat {
+        case .png: return "Lossless, widest compatibility. Supports transparency."
+        case .webp: return "Smallest file, ideal for web. Supports transparency."
+        }
+    }
+}
+

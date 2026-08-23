@@ -40,6 +40,7 @@ struct IPadRootView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var showProSheet = false
     @State private var sharePayload: SharePayload?
+    @State private var showFrameExportOptions = false
     @State private var viewportSize: CGSize = .zero
     @State private var viewportScale: CGFloat = 2
 
@@ -363,20 +364,44 @@ struct IPadRootView: View {
     private var exportMenu: some View {
         Menu {
             Button {
-                Task {
-                    do {
-                        let url = try await store.exportFrameForSharing()
-                        sharePayload = SharePayload(items: [url])
-                    } catch {
-                        store.projectError =
-                            (error as? LocalizedError)?.errorDescription
-                            ?? error.localizedDescription
-                    }
-                }
+                showFrameExportOptions = true
             } label: {
-                Label("Share Frame as PNG", systemImage: "photo")
+                Label("Share Frame…", systemImage: "photo")
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Menu("Share Frame Quickly") {
+                Button {
+                    Task {
+                        do {
+                            let url = try await store.exportFrameForSharing(format: .png, transparentBackground: false)
+                            sharePayload = SharePayload(items: [url])
+                        } catch {
+                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        }
+                    }
+                } label: { Label("PNG (opaque)", systemImage: "photo") }
+                Button {
+                    Task {
+                        do {
+                            let url = try await store.exportFrameForSharing(format: .png, transparentBackground: true)
+                            sharePayload = SharePayload(items: [url])
+                        } catch {
+                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        }
+                    }
+                } label: { Label("PNG (transparent)", systemImage: "checkerboard.rectangle") }
+                Button {
+                    Task {
+                        do {
+                            let url = try await store.exportFrameForSharing(format: .webp, transparentBackground: true)
+                            sharePayload = SharePayload(items: [url])
+                        } catch {
+                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                        }
+                    }
+                } label: { Label("WebP (transparent)", systemImage: "photo.on.rectangle.angled") }
+            }
 
             Button {
                 store.exportVideo()
@@ -385,6 +410,11 @@ struct IPadRootView: View {
             }
         } label: {
             chromeIcon("square.and.arrow.up")
+        }
+        .sheet(isPresented: $showFrameExportOptions) {
+            IPadFrameExportOptionsView(store: store) { url in
+                sharePayload = SharePayload(items: [url])
+            }
         }
         .disabled(store.isExportingVideo)
     }

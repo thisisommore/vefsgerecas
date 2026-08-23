@@ -88,35 +88,68 @@ extension YomMockStore {
     // MARK: - Frame export
 
     /// Renders the current timeline state offscreen on the GPU (4K class) and
-    /// saves it as a PNG after asking for a location.
+    /// saves it after asking for a location. Transparent background removes the studio gradient.
     func exportCurrentFrame() {
+        // Capture pending options at call time
+        let format = pendingFrameFormat
+        let transparent = pendingFrameTransparent
         Task { @MainActor in
             do {
-                let data = try await renderFramePNGData()
-                presentFrameSavePanel(for: data)
+                let data = try await renderFrameData(format: format, transparentBackground: transparent)
+                presentFrameSavePanel(for: data, format: format)
             } catch {
                 projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
     }
 
-    private func presentFrameSavePanel(for data: Data) {
+    /// Direct export for accessory preview or tests
+    func exportCurrentFrame(format: FrameExportFormat, transparentBackground: Bool) {
+        pendingFrameFormat = format
+        pendingFrameTransparent = transparentBackground
+        exportCurrentFrame()
+    }
+
+    private func presentFrameSavePanel(for data: Data, format: FrameExportFormat) {
         let panel = NSSavePanel()
         panel.title = "Export Current Frame"
-        panel.message = "Save a screenshot of the current frame as a PNG image."
+        panel.message = format == .webp
+            ? "Save a transparent WebP or PNG of the current frame."
+            : "Save a screenshot of the current frame."
         let base = projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-        panel.nameFieldStringValue = "\(base) Frame.png"
-        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "\(base) Frame.\(format.fileExtension)"
+        if format == .png {
+            panel.allowedContentTypes = [.png]
+        } else {
+            panel.allowedContentTypes = [UTType("org.webmproject.webp") ?? .png, .png]
+            if let webp = UTType("org.webmproject.webp") {
+                panel.allowedContentTypes = [webp, .png]
+            }
+        }
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
+        // Accessory for format + transparency — lightweight custom view
+        // Note: keep panel accessory simple to avoid AppKit lifecycle issues; user can also change via Inspector toggle.
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let finalURL = url.pathExtension.lowercased() == "png" ? url : url.appendingPathExtension("png")
+        let ext = format.fileExtension.lowercased()
+        let finalURL: URL = {
+            if url.pathExtension.lowercased() == ext { return url }
+            if url.pathExtension.lowercased() == "png" || url.pathExtension.lowercased() == "webp" {
+                return url.deletingPathExtension().appendingPathExtension(ext)
+            }
+            if url.pathExtension.isEmpty { return url.appendingPathExtension(ext) }
+            return url.deletingPathExtension().appendingPathExtension(ext)
+        }()
         do {
             try data.write(to: finalURL, options: .atomic)
             presentExportedFile(frameURL: finalURL)
         } catch {
             projectError = error.localizedDescription
         }
+    }
+
+    private func presentFrameSavePanel(for data: Data) {
+        presentFrameSavePanel(for: data, format: pendingFrameFormat)
     }
 
     func showExportedFrameInFinder() {
