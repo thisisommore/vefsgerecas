@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A17ECA000000000000000006 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000002 /* RevenueCat */; };
+		A17ECA000000000000000007 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000003 /* RevenueCatUI */; };
+		A17ECA000000000000000008 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000004 /* RevenueCat */; };
+		A17ECA000000000000000009 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000005 /* RevenueCatUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A14959BD302F0E9C00903E35 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -63,6 +70,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A17ECA000000000000000006 /* RevenueCat in Frameworks */,
+				A17ECA000000000000000007 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,6 +93,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A17ECA000000000000000008 /* RevenueCat in Frameworks */,
+				A17ECA000000000000000009 /* RevenueCatUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -142,6 +153,8 @@
 			);
 			name = YomMock;
 			packageProductDependencies = (
+				A17ECA000000000000000002 /* RevenueCat */,
+				A17ECA000000000000000003 /* RevenueCatUI */,
 			);
 			productName = YomMock;
 			productReference = A14959AF302F0E9A00903E35 /* YomMock.app */;
@@ -211,6 +224,8 @@
 			);
 			name = "YomMock-iPad";
 			packageProductDependencies = (
+				A17ECA000000000000000004 /* RevenueCat */,
+				A17ECA000000000000000005 /* RevenueCatUI */,
 			);
 			productName = "YomMock-iPad";
 			productReference = A130BD723038704800A28933 /* YomMock-iPad.app */;
@@ -251,6 +266,9 @@
 			);
 			mainGroup = A14959A6302F0E9A00903E35;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A14959B0302F0E9A00903E35 /* Products */;
 			projectDirPath = "";
@@ -465,6 +483,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = YomMock/YomMock.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -498,6 +517,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = YomMock/YomMock.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -723,6 +743,40 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A17ECA000000000000000002 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		A17ECA000000000000000003 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
+		};
+		A17ECA000000000000000004 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		A17ECA000000000000000005 /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCatUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A14959A7302F0E9A00903E35 /* Project object */;
 }

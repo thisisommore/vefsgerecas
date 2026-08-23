@@ -11,6 +11,11 @@ import SwiftUI
 struct YomMockiPadApp: App {
     @State private var store = YomMockStore()
 
+    init() {
+        SubscriptionManager.configure()
+        SubscriptionManager.shared.start()
+    }
+
     var body: some Scene {
         WindowGroup {
             IPadRootView(store: store)

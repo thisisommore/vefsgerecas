@@ -38,6 +38,7 @@ struct IPadRootView: View {
     @State private var showSavedToast = false
     @State private var savedToastTask: Task<Void, Never>?
     @State private var photoItem: PhotosPickerItem?
+    @State private var showProSheet = false
     @State private var sharePayload: SharePayload?
     @State private var viewportSize: CGSize = .zero
     @State private var viewportScale: CGFloat = 2
@@ -115,6 +116,9 @@ struct IPadRootView: View {
             // the inspector below overlays the full width.
             .padding(.trailing, trailingInspectorClearance)
             .overlay(alignment: .trailing) { inspectorColumn }
+            .sheet(isPresented: $showProSheet) {
+                SubscriptionSettingsView()
+            }
             .sheet(isPresented: $showInspectorSheet) {
                 IPadInspectorPanel(
                     store: store,
@@ -248,6 +252,13 @@ struct IPadRootView: View {
             HStack(spacing: 4) {
                 PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                     chromeIcon("photo.on.rectangle.angled")
+                }
+                .buttonStyle(GlassCircleButtonStyle())
+
+                Button {
+                    showProSheet = true
+                } label: {
+                    chromeIcon("crown")
                 }
                 .buttonStyle(GlassCircleButtonStyle())
 

@@ -122,6 +122,12 @@ private struct YomMockWindowRoot: View {
 struct YomMockApp: App {
     @NSApplicationDelegateAdaptor(YomMockAppDelegate.self) private var appDelegate
     @FocusedValue(\.yomMockStore) private var focusedStore
+    @Environment(\.openWindow) private var openWindow
+
+    init() {
+        SubscriptionManager.configure()
+        SubscriptionManager.shared.start()
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -171,12 +177,23 @@ struct YomMockApp: App {
                 .keyboardShortcut("e", modifiers: [.command, .shift, .option])
                 .disabled(focusedStore == nil)
             }
+
+            CommandGroup(after: .appSettings) {
+                Button("YomMock Pro…") {
+                    openWindow(id: "yommock-pro")
+                }
+            }
         }
 
-        // Settings placeholder if needed
+        Window("YomMock Pro", id: "yommock-pro") {
+            SubscriptionSettingsView()
+                .frame(minWidth: 460, minHeight: 420)
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 480, height: 440)
+
         Settings {
-            Text("YomMock Settings")
-                .frame(width: 300, height: 100)
+            SubscriptionSettingsView()
         }
     }
 }
