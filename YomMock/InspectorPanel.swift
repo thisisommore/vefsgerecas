@@ -37,8 +37,7 @@ struct InspectorPanel: View {
                     Divider()
 
                     DisplayInspectorPanel(
-                        displayImage: $store.displayImage,
-                        displayFileName: $store.displayFileName,
+                        store: store,
                         displayStatus: $displayStatus
                     )
 
@@ -199,19 +198,22 @@ private struct BackdropInspectorPanel: View {
     }
 }
 
-// MARK: - Display (Screenshot)
+// MARK: - Display (Screenshot / Screen Recording)
 
 private struct DisplayInspectorPanel: View {
-    @Binding var displayImage: NSImage?
-    @Binding var displayFileName: String?
+    @Bindable var store: YomMockStore
     @Binding var displayStatus: String?
     @State private var isDropTargeted = false
 
+    private var isVideoActive: Bool { store.displayVideo != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            inspectorHeader(title: "DISPLAY", subtitle: "Screenshot")
+            inspectorHeader(
+                title: "DISPLAY",
+                subtitle: isVideoActive ? "Screen Recording" : "Screenshot")
 
-            if let image = displayImage {
+            if let image = store.displayImage {
                 VStack(alignment: .leading, spacing: 8) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 8)
@@ -222,6 +224,15 @@ private struct DisplayInspectorPanel: View {
                             .frame(maxHeight: 120)
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                             .padding(6)
+                        if isVideoActive {
+                            Label("Recording", systemImage: "play.circle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .padding(4)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .overlay {
@@ -229,14 +240,14 @@ private struct DisplayInspectorPanel: View {
                             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
                     }
                     .contentShape(RoundedRectangle(cornerRadius: 8))
-                    .onTapGesture { chooseImage() }
-                    .help("Click to change screenshot")
+                    .onTapGesture { chooseFile() }
+                    .help(isVideoActive ? "Click to change screen recording" : "Click to change screenshot")
 
                     HStack(spacing: 6) {
-                        Image(systemName: "photo")
+                        Image(systemName: isVideoActive ? "video.fill" : "photo")
                             .font(.system(size: 10))
                             .foregroundStyle(.secondary)
-                        Text(displayFileName ?? "Screenshot")
+                        Text(store.displayFileName ?? (isVideoActive ? "Screen recording" : "Screenshot"))
                             .font(.system(size: 10, weight: .medium))
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -274,15 +285,18 @@ private struct DisplayInspectorPanel: View {
                             Image(systemName: "photo.on.rectangle.angled")
                                 .font(.system(size: 16, weight: .regular))
                                 .foregroundStyle(.secondary)
-                            Text("Drop screenshot")
+                            Text("Drop screenshot or recording")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
+                            Text("MP4 / MOV screen recordings play live")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
                         }
                         .padding(.vertical, 12)
                     }
                     .frame(maxWidth: .infinity)
                     .contentShape(RoundedRectangle(cornerRadius: 8))
-                    .onTapGesture { chooseImage() }
+                    .onTapGesture { chooseFile() }
                     .onDrop(
                         of: [.fileURL, .image], isTargeted: $isDropTargeted, perform: handleDrop
                     )
@@ -317,30 +331,39 @@ private struct DisplayInspectorPanel: View {
             ])
     }
 
-    private func chooseImage() {
+    private func chooseFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
             .png, .jpeg, .heic, .heif, .tiff, .bmp, .gif, .webP,
+            .movie, .mpeg4Movie, .quickTimeMovie,
         ]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.message = "Choose an image for the phone display"
+        panel.message = "Choose a screenshot or a screen recording for the display"
         panel.prompt = "Choose"
         if panel.runModal() == .OK, let url = panel.url {
-            if let image = NSImage(contentsOf: url) {
-                displayFileName = url.lastPathComponent
-                displayImage = image
+            if UTType.isDisplayVideo(url) {
+                Task { @MainActor in
+                    await store.setDisplayVideo(at: url)
+                    if store.projectError != nil {
+                        displayStatus = store.projectError
+                        store.handleSaveErrorDismiss()
+                    } else {
+                        displayStatus = nil
+                    }
+                }
+            } else if let image = NSImage(contentsOf: url) {
+                store.setStaticDisplay(image, fileName: url.lastPathComponent)
                 displayStatus = nil
             } else {
-                displayStatus = "Could not load image at \(url.lastPathComponent)."
+                displayStatus = "Could not load file at \(url.lastPathComponent)."
             }
         }
     }
 
     private func removeImage() {
-        displayImage = nil
-        displayFileName = nil
+        store.setStaticDisplay(nil, fileName: nil)
         displayStatus = nil
     }
 
@@ -349,16 +372,14 @@ private struct DisplayInspectorPanel: View {
         if let images = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
             let image = images.first
         {
-            displayFileName = "Pasted image"
-            displayImage = image
+            store.setStaticDisplay(image, fileName: "Pasted image")
             displayStatus = nil
             return
         }
         if let data = pb.data(forType: .tiff) ?? pb.data(forType: .png),
             let image = NSImage(data: data)
         {
-            displayFileName = "Pasted image"
-            displayImage = image
+            store.setStaticDisplay(image, fileName: "Pasted image")
             displayStatus = nil
             return
         }
@@ -378,14 +399,22 @@ private struct DisplayInspectorPanel: View {
                 } else if let u = item as? URL {
                     url = u
                 }
-                guard let url, let image = NSImage(contentsOf: url) else {
-                    Task { @MainActor in displayStatus = "Could not load dropped file." }
-                    return
-                }
+                guard let url else { return }
                 Task { @MainActor in
-                    displayFileName = url.lastPathComponent
-                    displayImage = image
-                    displayStatus = nil
+                    if UTType.isDisplayVideo(url) {
+                        await store.setDisplayVideo(at: url)
+                        if store.projectError != nil {
+                            displayStatus = store.projectError
+                            store.handleSaveErrorDismiss()
+                        } else {
+                            displayStatus = nil
+                        }
+                    } else if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setStaticDisplay(image, fileName: url.lastPathComponent)
+                        displayStatus = nil
+                    } else {
+                        displayStatus = "Could not load dropped file."
+                    }
                 }
             }
             return true
@@ -397,8 +426,7 @@ private struct DisplayInspectorPanel: View {
                     return
                 }
                 Task { @MainActor in
-                    displayFileName = "Dropped image"
-                    displayImage = image
+                    store.setStaticDisplay(image, fileName: "Dropped image")
                     displayStatus = nil
                 }
             }

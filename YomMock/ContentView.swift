@@ -79,42 +79,28 @@ struct ContentView: View {
             .frame(height: 148)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: store.device) { oldDevice, newDevice in
-            // Swap the bundled default screenshot when the user hasn't
-            // overridden it; keep user-provided images across device switches.
-            if store.displayFileName == oldDevice.defaultDisplayImageName {
-                store.loadDefaultDisplayImage(for: newDevice)
+        .modifier(MacEditorChangeWatchers(
+            store: store,
+            refreshMaterials: refreshMaterials,
+            applyZoomToScene: { value in
+                guard !store.timeline.isPlaying else { return }
+                scene.zoom = value
+                scene.applyZoom()
+            },
+            applyLidAngleToScene: { value in
+                scene.applyLidAngle(value)
+            },
+            onDisplayImageChanged: { image in
+                setDisplayScreenshot(image)
+            },
+            onDisplayVideoChanged: {
+                // Screen recording swapped/attached — the VideoMaterial takes
+                // over the screen mesh; the poster texture stays as fallback.
+                // Playback is timeline-driven, never spontaneous.
+                scene.lidRig?.displayOn = true
+                refreshMaterials()
             }
-            store.swapDefaultTimelineIfNeeded(from: oldDevice, to: newDevice)
-            store.markDirty()
-        }
-        .onChange(of: store.selectedColor) { _, _ in
-            refreshMaterials()
-            store.markDirty()
-        }
-        .onChange(of: store.customColor) { _, _ in
-            refreshMaterials()
-            store.markDirty()
-        }
-        .onChange(of: store.background) { _, _ in store.markDirty() }
-        .onChange(of: store.customBackground) { _, _ in store.markDirty() }
-        .onChange(of: store.zoom) { _, value in
-            guard !store.timeline.isPlaying else { return }
-            scene.zoom = value
-            scene.applyZoom()
-            store.markDirty()
-        }
-        .onChange(of: store.lidAngle) { _, value in
-            scene.applyLidAngle(value)
-            refreshMaterials()
-            store.markDirty()
-        }
-        .onChange(of: store.displayImage) { _, newImage in
-            setDisplayScreenshot(newImage)
-            store.markDirtyForImageChange()
-        }
-        .onChange(of: store.timeline.checkpoints) { _, _ in store.markDirty() }
-        .onChange(of: store.timeline.duration) { _, _ in store.markDirty() }
+        ))
     }
 
     private var preview: some View {
@@ -146,7 +132,8 @@ struct ContentView: View {
                             finish: store.selectedColor.finish(custom: store.customColor),
                             displayTexture: displayTexture,
                             lidGlow: 0,
-                            displayAverageColor: displayAverageColor
+                            displayAverageColor: displayAverageColor,
+                            displayVideoMaterial: store.displayVideo?.material
                         ),
                         lidAngle: store.lidAngle
                     )
@@ -177,7 +164,16 @@ struct ContentView: View {
             .id(store.device)
             .background { inputCatchers }
 
-            TimelinePlaybackDriver(timeline: store.timeline, apply: applyEvaluatedPose)
+            TimelinePlaybackDriver(
+                timeline: store.timeline,
+                apply: applyEvaluatedPose,
+                onPlayStateChanged: { playing in
+                    store.timelinePlayStateChanged(playing)
+                },
+                onScrubbed: {
+                    store.scrubDisplayVideoToPlayhead()
+                }
+            )
 
             if let status {
                 Text(status)
@@ -369,7 +365,8 @@ struct ContentView: View {
             finish: store.selectedColor.finish(custom: store.customColor),
             displayTexture: displayTexture,
             lidGlow: scene.lidRig?.glowFactor ?? 0,
-            displayAverageColor: displayAverageColor
+            displayAverageColor: displayAverageColor,
+            displayVideoMaterial: store.displayVideo?.material
         ))
     }
 
@@ -379,7 +376,7 @@ struct ContentView: View {
         guard let image else {
             displayTexture = nil
             displayAverageColor = nil
-            scene.lidRig?.displayOn = false
+            scene.lidRig?.displayOn = store.displayVideo != nil
             refreshMaterials()
             return
         }
@@ -420,10 +417,15 @@ struct ContentView: View {
                 } else if let itemURL = item as? URL {
                     url = itemURL
                 }
-                guard let url, let image = NSImage(contentsOf: url) else { return }
+                guard let url else { return }
                 Task { @MainActor in
-                    store.displayFileName = url.lastPathComponent
-                    store.displayImage = image
+                    if UTType.isDisplayVideo(url) {
+                        await store.setDisplayVideo(at: url)
+                    } else if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setStaticDisplay(image, fileName: url.lastPathComponent)
+                    } else {
+                        store.projectError = "Could not load dropped file."
+                    }
                 }
             }
             return true
@@ -432,8 +434,7 @@ struct ContentView: View {
             provider.loadObject(ofClass: NSImage.self) { object, _ in
                 guard let image = object as? NSImage else { return }
                 Task { @MainActor in
-                    store.displayFileName = "Pasted image"
-                    store.displayImage = image
+                    store.setStaticDisplay(image, fileName: "Pasted image")
                 }
             }
             return true
@@ -471,4 +472,63 @@ struct ContentView: View {
 
 #Preview {
     ContentView(store: YomMockStore())
+}
+
+// MARK: - Store change watchers (split out for type-check speed)
+
+/// All store-driven reactions of the Mac editor, extracted from `mainContent`
+/// so the view-builder expression stays inside the type-checker's budget.
+private struct MacEditorChangeWatchers: ViewModifier {
+    @Bindable var store: YomMockStore
+    var refreshMaterials: () -> Void
+    var applyZoomToScene: (Float) -> Void
+    var applyLidAngleToScene: (Float) -> Void
+    var onDisplayImageChanged: (PlatformImage?) -> Void
+    var onDisplayVideoChanged: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: store.device) { oldDevice, newDevice in
+                // Swap the bundled default screenshot when the user hasn't
+                // overridden it; keep user-provided images across switches.
+                if store.displayFileName == oldDevice.defaultDisplayImageName {
+                    store.loadDefaultDisplayImage(for: newDevice)
+                }
+                store.swapDefaultTimelineIfNeeded(from: oldDevice, to: newDevice)
+                store.markDirty()
+            }
+            .onChange(of: store.selectedColor) { _, _ in
+                refreshMaterials()
+                store.markDirty()
+            }
+            .onChange(of: store.customColor) { _, _ in
+                refreshMaterials()
+                store.markDirty()
+            }
+            .onChange(of: store.background) { _, _ in store.markDirty() }
+            .onChange(of: store.customBackground) { _, _ in store.markDirty() }
+            .onChange(of: store.zoom) { _, value in
+                applyZoomToScene(value)
+                store.markDirty()
+            }
+            .onChange(of: store.lidAngle) { _, value in
+                applyLidAngleToScene(value)
+                refreshMaterials()
+                store.markDirty()
+            }
+            .onChange(of: store.displayImage) { _, newImage in
+                onDisplayImageChanged(newImage)
+                store.markDirtyForImageChange()
+            }
+            .onChange(of: store.displayVideo) { _, controller in
+                // Never play() here — the store parks the recording on the
+                // playhead frame and TimelinePlaybackDriver starts it when
+                // the animation starts. Autoplaying would run the clip even
+                // while the timeline is stopped.
+                onDisplayVideoChanged()
+                if controller == nil { store.markDirtyForImageChange() }
+            }
+            .onChange(of: store.timeline.checkpoints) { _, _ in store.markDirty() }
+            .onChange(of: store.timeline.duration) { _, _ in store.markDirty() }
+    }
 }

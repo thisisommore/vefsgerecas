@@ -134,6 +134,7 @@ struct YomMockProjectDocument: Codable, Equatable {
     var selectedCheckpointID: String?
     var displayRelativePath: String? // e.g. "assets/display.png"
     var displayFileName: String?
+    var displayVideoRelativePath: String? // e.g. "assets/display-video.mov"; nil = static screenshot
 
     static let currentVersion = 3
 
@@ -152,6 +153,7 @@ struct YomMockProjectDocument: Codable, Equatable {
             && lhs.selectedCheckpointID == rhs.selectedCheckpointID
             && lhs.displayRelativePath == rhs.displayRelativePath
             && lhs.displayFileName == rhs.displayFileName
+            && lhs.displayVideoRelativePath == rhs.displayVideoRelativePath
     }
 }
 
@@ -165,6 +167,9 @@ enum YomMockProject {
         let projectURL: URL
         let document: YomMockProjectDocument
         let displayImage: PlatformImage?
+        /// Resolved video file inside the package when the project uses a
+        /// screen recording as its display content.
+        let displayVideoURL: URL?
     }
 
     static func documentURL(in projectURL: URL) -> URL {
@@ -197,7 +202,16 @@ enum YomMockProject {
                 image = PlatformImageLoader.image(contentsOf: fallback)
             }
         }
-        return Loaded(projectURL: projectURL, document: document, displayImage: image)
+        var videoURL: URL?
+        if let rel = document.displayVideoRelativePath {
+            let url = projectURL.appendingPathComponent(rel)
+            if FileManager.default.fileExists(atPath: url.path) {
+                videoURL = url
+            }
+        }
+        return Loaded(
+            projectURL: projectURL, document: document,
+            displayImage: image, displayVideoURL: videoURL)
     }
 
     /// Writes a self-contained project package at `projectURL`.
@@ -205,7 +219,8 @@ enum YomMockProject {
     static func save(
         to projectURL: URL,
         document: YomMockProjectDocument,
-        displayImage: PlatformImage?
+        displayImage: PlatformImage?,
+        displayVideoSourceURL: URL? = nil
     ) throws -> YomMockProjectDocument {
         let fm = FileManager.default
         let tempURL = fm.temporaryDirectory
@@ -227,6 +242,21 @@ enum YomMockProject {
                 saved.displayRelativePath = "\(assetsDirectoryName)/\(displayFileName)"
             } else {
                 saved.displayRelativePath = nil
+            }
+
+            // Copy the screen recording into the package so projects stay
+            // self-contained. The poster PNG above remains the thumbnail.
+            if let displayVideoSourceURL {
+                let ext = displayVideoSourceURL.pathExtension.isEmpty
+                    ? "mov" : displayVideoSourceURL.pathExtension
+                let dest = assetsDir.appendingPathComponent("display-video.\(ext)")
+                if fm.fileExists(atPath: dest.path) {
+                    try fm.removeItem(at: dest)
+                }
+                try fm.copyItem(at: displayVideoSourceURL, to: dest)
+                saved.displayVideoRelativePath = "\(assetsDirectoryName)/display-video.\(ext)"
+            } else {
+                saved.displayVideoRelativePath = nil
             }
 
             let encoder = JSONEncoder()

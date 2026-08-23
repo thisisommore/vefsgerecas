@@ -16,6 +16,12 @@ struct DeviceStyling {
     var displayTexture: TextureResource?
     var lidGlow: Float
     var displayAverageColor: PlatformColor?
+    /// Active screen-recording material — wins over `displayTexture` on the
+    /// screen mesh (the static texture is still used as poster/spill tint).
+    var displayVideoMaterial: (any RealityKit.Material)? = nil
+
+    /// Whether any display content (screenshot or video) is active.
+    var hasDisplayContent: Bool { displayTexture != nil || displayVideoMaterial != nil }
 }
 
 enum PhoneStyling {
@@ -64,9 +70,9 @@ enum PhoneStyling {
     static func material(for name: String, styling: DeviceStyling) -> any RealityKit.Material {
         switch styling.device {
         case .iPhone:
-            return phoneMaterial(for: name, finish: styling.finish, displayTexture: styling.displayTexture)
+            return phoneMaterial(for: name, styling: styling)
         case .macBookPro:
-            return macMaterial(for: name, finish: styling.finish, displayTexture: styling.displayTexture, lidGlow: styling.lidGlow, displayAverageColor: styling.displayAverageColor)
+            return macMaterial(for: name, styling: styling)
         }
     }
 
@@ -84,10 +90,17 @@ enum PhoneStyling {
     /// screen spill when the lid is partly closed (MacBookLidRig.glowFactor).
     /// When `displayAverageColor` is provided, the spill is tinted to match
     /// the screenshot instead of the fixed cool-white.
-    static func macMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?, lidGlow: Float = 0, displayAverageColor: PlatformColor? = nil) -> any RealityKit.Material {
+    static func macMaterial(for name: String, styling: DeviceStyling) -> any RealityKit.Material {
+        let finish = styling.finish
+        let displayTexture = styling.displayTexture
+        let lidGlow = styling.lidGlow
+        let displayAverageColor = styling.displayAverageColor
         let glowColor = displayAverageColor ?? PlatformColor.studio(red: 0.72, green: 0.80, blue: 0.95)
         switch name.lowercased() {
         case "screen":
+            if let video = styling.displayVideoMaterial {
+                return video
+            }
             if let displayTexture {
                 return screenMaterial(with: displayTexture)
             }
@@ -128,9 +141,9 @@ enum PhoneStyling {
             )
         case "lidinner":
             // Full-face glass panel over the Screen mesh. Transparent when a
-            // screenshot is active, dark glass otherwise (like the iPhone's
-            // cover glass over the textured screen plane).
-            if displayTexture != nil {
+            // screenshot or recording is active, dark glass otherwise (like
+            // the iPhone's cover glass over the textured screen plane).
+            if styling.hasDisplayContent {
                 var material = PhysicallyBasedMaterial()
                 material.baseColor = .init(tint: PlatformColor.studioWhite(1, alpha: 0))
                 material.metallic = .init(floatLiteral: 0)
@@ -206,10 +219,15 @@ enum PhoneStyling {
         }
     }
 
-    static func phoneMaterial(for name: String, finish: PhoneFinish, displayTexture: TextureResource?) -> any RealityKit.Material {
+    static func phoneMaterial(for name: String, styling: DeviceStyling) -> any RealityKit.Material {
+        let finish = styling.finish
+        let displayTexture = styling.displayTexture
         let key = name.lowercased()
 
         if key.contains("screen") && !key.contains("glass") && !key.contains("edge") {
+            if let video = styling.displayVideoMaterial {
+                return video
+            }
             if let displayTexture {
                 return screenMaterial(with: displayTexture)
             }
@@ -231,10 +249,10 @@ enum PhoneStyling {
             )
         }
         // The cover glass sits directly in front of the LCD (Mesh_013_Glass_Screen).
-        // When a screenshot is active it must be transparent, otherwise the opaque
-        // dark glass hides the textured 043_Screen plane behind it.
+        // When a screenshot or recording is active it must be transparent, otherwise
+        // the opaque dark glass hides the textured 043_Screen plane behind it.
         if key.contains("glass_screen") {
-            if displayTexture != nil {
+            if styling.hasDisplayContent {
                 var material = PhysicallyBasedMaterial()
                 material.baseColor = .init(tint: PlatformColor.studioWhite(1, alpha: 0))
                 material.metallic = .init(floatLiteral: 0)

@@ -26,6 +26,9 @@ final class YomMockStore {
     var timeline: CameraTimeline = CameraTimeline.demo
     var displayImage: PlatformImage?
     var displayFileName: String?
+    /// Active screen recording used as the display content (nil = static
+    /// screenshot). Owns the looping preview player + export frame source.
+    private(set) var displayVideo: DisplayVideoController?
 
     // MARK: - Project bookkeeping
 
@@ -152,6 +155,8 @@ final class YomMockStore {
 
         self.displayImage = displayImage
         self.displayFileName = doc.displayFileName
+        // The looping player is restored asynchronously by openProject.
+        displayVideo = nil
 
         lastSavedSnapshot = doc
         isDirty = false
@@ -198,6 +203,8 @@ final class YomMockStore {
         customBackground = Color.white
         zoom = 1
         timeline = CameraTimeline.demo(for: .iPhone)
+        displayVideo?.pause()
+        displayVideo = nil
         displayImage = nil
         displayFileName = nil
         projectURL = nil
@@ -215,10 +222,14 @@ final class YomMockStore {
         timeline = CameraTimeline.demo(for: newDevice)
     }
 
+    /// Saves into the given URL. `displayVideoSourceURL` (the original
+    /// dropped recording) is copied into the package when present.
     func performSave(to url: URL) {
         do {
             let doc = makeDocument()
-            let saved = try YomMockProject.save(to: url, document: doc, displayImage: displayImage)
+            let saved = try YomMockProject.save(
+                to: url, document: doc, displayImage: displayImage,
+                displayVideoSourceURL: displayVideo?.url)
             projectURL = url
             lastSavedSnapshot = saved
             isDirty = false
@@ -234,9 +245,124 @@ final class YomMockStore {
             projectURL = url
             applyDocument(loaded.document, displayImage: loaded.displayImage)
             projectError = nil
+            if let videoURL = loaded.displayVideoURL {
+                let expectedFileName = loaded.document.displayFileName
+                Task { @MainActor in
+                    await restoreDisplayVideo(at: videoURL, expectedPosterName: expectedFileName)
+                }
+            }
         } catch {
             projectError = error.localizedDescription
         }
+    }
+
+    // MARK: - Display content (screenshot / screen recording)
+
+    /// Sets a static screenshot as the display content, clearing any active
+    /// screen recording. All UI entry points for images go through this.
+    func setStaticDisplay(_ image: PlatformImage?, fileName: String?) {
+        displayVideo?.pause()
+        displayVideo = nil
+        displayImage = image
+        displayFileName = fileName
+    }
+
+    /// Loads a dropped/chosen screen recording as the display content:
+    /// builds the looping preview player and extracts a poster frame that
+    /// feeds thumbnails, spill tint and project persistence.
+    func setDisplayVideo(at url: URL) async {
+        do {
+            let controller = try await DisplayVideoController(url: url)
+            displayVideo = controller
+            let poster = await controller.posterFrame()
+            if let cg = poster {
+                displayImage = PlatformImageLoader.image(cgImage: cg)
+            } else {
+                displayImage = nil
+                displayVideo = nil
+                projectError = "Could not decode a frame from \(url.lastPathComponent)."
+                return
+            }
+            displayFileName = url.lastPathComponent
+            markDirtyForImageChange()
+            // Never autoplay: show the frame matching the playhead. Playback
+            // starts when the camera animation starts.
+            controller.scrub(to: min(timeline.currentTime, controller.duration))
+        } catch {
+            displayVideo = nil
+            projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// Imports a screen recording from a possibly security-scoped URL
+    /// (Files app / drop / Photos) by copying it into the app's temporary
+    /// directory first — drop URLs can expire between sessions.
+    func importDisplayVideo(at externalURL: URL) async {
+        let scoped = externalURL.startAccessingSecurityScopedResource()
+        defer { if scoped { externalURL.stopAccessingSecurityScopedResource() } }
+
+        let fm = FileManager.default
+        let ext = externalURL.pathExtension.isEmpty ? "mov" : externalURL.pathExtension
+        let destination = fm.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(ext)
+        do {
+            try fm.copyItem(at: externalURL, to: destination)
+        } catch {
+            // Plain sandbox file (no copy needed) — use it directly.
+            if fm.isReadableFile(atPath: externalURL.path) {
+                await setDisplayVideo(at: externalURL)
+            } else {
+                projectError = error.localizedDescription
+            }
+            return
+        }
+        await setDisplayVideo(at: destination)
+    }
+
+    /// Reattaches the looping preview after opening a saved project. The
+    /// poster PNG is already in place — only the player/material are rebuilt.
+    private func restoreDisplayVideo(at url: URL, expectedPosterName: String?) async {
+        // Bail if the user replaced the display content while decoding.
+        guard displayVideo == nil, displayFileName == expectedPosterName else { return }
+        do {
+            let controller = try await DisplayVideoController(url: url)
+            guard displayVideo == nil else { return }
+            displayVideo = controller
+            // Park on the playhead's frame; playback follows the timeline.
+            controller.scrub(to: min(timeline.currentTime, controller.duration))
+        } catch {
+            // Poster still shows; surface a soft warning.
+            projectError = "Could not reopen the screen recording: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Display video ↔ timeline playback sync
+
+    /// The recording only ever moves with the camera animation:
+    /// - starts from its first frame when the timeline starts playing,
+    ///   including when a finished timeline restarts from the top,
+    /// - resumes from where it was when the timeline was paused mid-run,
+    /// - pauses whenever the timeline pauses or reaches its end,
+    /// - freezes on its final frame if it is shorter than the timeline.
+    func timelinePlayStateChanged(_ playing: Bool) {
+        guard let video = displayVideo else { return }
+        if playing {
+            if timeline.currentTime < 0.05 || video.isAtEnd {
+                video.restart()
+            } else {
+                video.resume()
+            }
+        } else {
+            video.pause()
+        }
+    }
+
+    /// Playhead scrubbing while paused moves the recording to the matching
+    /// frame, so the preview and "Export Current Frame" agree.
+    func scrubDisplayVideoToPlayhead() {
+        guard let video = displayVideo, !timeline.isPlaying else { return }
+        video.scrub(to: timeline.currentTime)
     }
 
     // MARK: - Frame export primitives
@@ -269,7 +395,13 @@ final class YomMockStore {
     /// the PNG-encoded data plus the render size. No UI.
     func renderFramePNGData() async throws -> Data {
         let previewPoints = previewPointSize()
-        let inputs = makeSceneInputs()
+        var inputs = makeSceneInputs()
+        // Live recording: sample the exact frame on screen right now so the
+        // exported still matches what the user sees.
+        if let video = displayVideo {
+            inputs.displayImage = await video.frame(at: video.currentPlaybackTime)
+                ?? inputs.displayImage
+        }
         let state = timeline.evaluatedState()
         let size = VideoExportOptions(resolution: .p2160).outputSize(
             previewPoints: previewPoints, backingScale: 1)
@@ -338,6 +470,7 @@ final class YomMockStore {
         let backingScale = previewBackingScale()
         let inputs = makeSceneInputs()
         let timelineSnapshot = timeline
+        let videoSnapshot = displayVideo
 
         let exporter = VideoExporter()
         videoExporter = exporter
@@ -351,6 +484,9 @@ final class YomMockStore {
                     inputs: inputs,
                     options: options,
                     outputURL: outputURL,
+                    videoFrameProvider: videoSnapshot.map { controller in
+                        { time in await controller.frame(at: time) }
+                    },
                     onProgress: { p in self.videoExportProgress = p }
                 )
                 isExportingVideo = false
@@ -401,6 +537,8 @@ final class YomMockStore {
             ?? Bundle.main.url(
                 forResource: name.replacingOccurrences(of: ".jpg", with: ""), withExtension: "jpg")
         guard let url, let img = PlatformImageLoader.image(contentsOf: url) else { return }
+        displayVideo?.pause()
+        displayVideo = nil
         displayFileName = name
         displayImage = img
     }

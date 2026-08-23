@@ -38,13 +38,19 @@ struct IPadInspectorPanel: View {
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
             Task {
-                if let data = try? await item.loadTransferable(type: Data.self),
+                defer { photoItem = nil }
+                if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                    if let movie = try? await item.loadTransferable(type: ImportedMovieFile.self) {
+                        await store.importDisplayVideo(at: movie.url)
+                        displayStatus = store.projectError
+                        if displayStatus != nil { store.handleSaveErrorDismiss() }
+                    }
+                } else if let data = try? await item.loadTransferable(type: Data.self),
                     let image = PlatformImageLoader.image(data: data)
                 {
-                    store.displayFileName = "Photo Library"
-                    store.displayImage = image
+                    store.setStaticDisplay(image, fileName: "Photo Library")
+                    displayStatus = nil
                 }
-                photoItem = nil
             }
         }
     }
@@ -123,7 +129,9 @@ struct IPadInspectorPanel: View {
 
     private var displaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("DISPLAY", subtitle: "Screenshot")
+            sectionHeader(
+                "DISPLAY",
+                subtitle: store.displayVideo != nil ? "Screen Recording" : "Screenshot")
 
             if let image = store.displayImage {
                 VStack(alignment: .leading, spacing: 10) {
@@ -147,8 +155,7 @@ struct IPadInspectorPanel: View {
                     )
                     .overlay(alignment: .topTrailing) {
                         Button(role: .destructive) {
-                            store.displayImage = nil
-                            store.displayFileName = nil
+                            store.setStaticDisplay(nil, fileName: nil)
                             displayStatus = nil
                         } label: {
                             Image(systemName: "trash")
@@ -158,17 +165,24 @@ struct IPadInspectorPanel: View {
                                 .background(.regularMaterial, in: Circle())
                         }
                         .padding(10)
-                        .accessibilityLabel("Remove screenshot")
+                        .accessibilityLabel(store.displayVideo != nil ? "Remove screen recording" : "Remove screenshot")
                     }
 
-                    Text(store.displayFileName ?? "Screenshot")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    HStack(spacing: 6) {
+                        if store.displayVideo != nil {
+                            Image(systemName: "video.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(store.displayFileName ?? "Screenshot")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
 
                     HStack(spacing: 8) {
-                        PhotosPicker(selection: $photoItem, matching: .images) {
+                        PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                             actionCapsule(
                                 "Change", systemImage: "photo",
                                 tint: Color.accentColor.opacity(0.14))
@@ -193,14 +207,14 @@ struct IPadInspectorPanel: View {
                     }
                 }
             } else {
-                PhotosPicker(selection: $photoItem, matching: .images) {
+                PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                     VStack(spacing: 10) {
                         Image(systemName: "photo.on.rectangle.angled")
                             .font(.system(size: 26))
                             .foregroundStyle(.secondary)
-                        Text("Choose Screenshot")
+                        Text("Choose Screenshot or Recording")
                             .font(.system(size: 15, weight: .semibold))
-                        Text("Photos or Files")
+                        Text("Photos or Files · MP4 / MOV play live")
                             .font(.system(size: 12))
                             .foregroundStyle(.tertiary)
                     }
@@ -293,8 +307,7 @@ struct IPadInspectorPanel: View {
 
     private func pasteFromClipboard() {
         if let image = UIPasteboard.general.image {
-            store.displayFileName = "Pasted image"
-            store.displayImage = image
+            store.setStaticDisplay(image, fileName: "Pasted image")
             displayStatus = nil
         } else {
             displayStatus = "No image found on clipboard."
@@ -316,14 +329,17 @@ struct IPadInspectorPanel: View {
                 guard let url else { return }
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                guard let image = PlatformImageLoader.image(contentsOf: url) else {
-                    Task { @MainActor in displayStatus = "Could not load dropped file." }
-                    return
-                }
                 Task { @MainActor in
-                    store.displayFileName = url.lastPathComponent
-                    store.displayImage = image
-                    displayStatus = nil
+                    if UTType.isDisplayVideo(url) {
+                        await store.importDisplayVideo(at: url)
+                        displayStatus = store.projectError
+                        if displayStatus != nil { store.handleSaveErrorDismiss() }
+                    } else if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setStaticDisplay(image, fileName: url.lastPathComponent)
+                        displayStatus = nil
+                    } else {
+                        displayStatus = "Could not load dropped file."
+                    }
                 }
             }
             return true
@@ -335,8 +351,7 @@ struct IPadInspectorPanel: View {
                     return
                 }
                 Task { @MainActor in
-                    store.displayFileName = "Dropped image"
-                    store.displayImage = image
+                    store.setStaticDisplay(image, fileName: "Dropped image")
                     displayStatus = nil
                 }
             }

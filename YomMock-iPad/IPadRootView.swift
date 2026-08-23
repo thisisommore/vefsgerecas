@@ -77,6 +77,13 @@ struct IPadRootView: View {
                 },
                 onDisplayImageChanged: { image in
                     setDisplayScreenshot(image)
+                },
+                onDisplayVideoChanged: {
+                    // Screen recording swapped/attached — its VideoMaterial
+                    // takes over the screen mesh (poster stays as fallback).
+                    // Playback is timeline-driven, never spontaneous.
+                    scene.lidRig?.displayOn = true
+                    refreshMaterials()
                 }
             )
             .animation(.spring(response: 0.38, dampingFraction: 0.86), value: store.isExportingVideo)
@@ -123,7 +130,16 @@ struct IPadRootView: View {
             StudioBackdrop(background: store.background, customColor: store.customBackground)
             previewRealityView
             cameraGestures
-            TimelinePlaybackDriver(timeline: store.timeline, apply: applyEvaluatedPose)
+            TimelinePlaybackDriver(
+                timeline: store.timeline,
+                apply: applyEvaluatedPose,
+                onPlayStateChanged: { playing in
+                    store.timelinePlayStateChanged(playing)
+                },
+                onScrubbed: {
+                    store.scrubDisplayVideoToPlayhead()
+                }
+            )
             videoExportOverlays
             displayStatusOverlay
         }
@@ -230,7 +246,7 @@ struct IPadRootView: View {
             Spacer()
 
             HStack(spacing: 4) {
-                PhotosPicker(selection: $photoItem, matching: .images) {
+                PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                     chromeIcon("photo.on.rectangle.angled")
                 }
                 .buttonStyle(GlassCircleButtonStyle())
@@ -434,7 +450,8 @@ struct IPadRootView: View {
                     finish: store.selectedColor.finish(custom: store.customColor),
                     displayTexture: displayTexture,
                     lidGlow: 0,
-                    displayAverageColor: displayAverageColor
+                    displayAverageColor: displayAverageColor,
+                    displayVideoMaterial: store.displayVideo?.material
                 ),
                 lidAngle: store.lidAngle
             )
@@ -503,10 +520,12 @@ struct IPadRootView: View {
                 guard let url else { return }
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                guard let image = PlatformImageLoader.image(contentsOf: url) else { return }
                 Task { @MainActor in
-                    store.displayFileName = url.lastPathComponent
-                    store.displayImage = image
+                    if UTType.isDisplayVideo(url) {
+                        await store.importDisplayVideo(at: url)
+                    } else if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setStaticDisplay(image, fileName: url.lastPathComponent)
+                    }
                 }
             }
             return true
@@ -515,8 +534,7 @@ struct IPadRootView: View {
             provider.loadObject(ofClass: UIImage.self) { object, _ in
                 guard let image = object as? UIImage else { return }
                 Task { @MainActor in
-                    store.displayFileName = "Dropped image"
-                    store.displayImage = image
+                    store.setStaticDisplay(image, fileName: "Dropped image")
                 }
             }
             return true
@@ -568,7 +586,8 @@ struct IPadRootView: View {
             finish: store.selectedColor.finish(custom: store.customColor),
             displayTexture: displayTexture,
             lidGlow: scene.lidRig?.glowFactor ?? 0,
-            displayAverageColor: displayAverageColor
+            displayAverageColor: displayAverageColor,
+            displayVideoMaterial: store.displayVideo?.material
         ))
     }
 
@@ -578,7 +597,7 @@ struct IPadRootView: View {
         guard let image else {
             displayTexture = nil
             displayAverageColor = nil
-            scene.lidRig?.displayOn = false
+            scene.lidRig?.displayOn = store.displayVideo != nil
             refreshMaterials()
             return
         }
@@ -644,13 +663,16 @@ private struct StoreChangeWatchers: ViewModifier {
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
                 Task {
-                    if let data = try? await item.loadTransferable(type: Data.self),
+                    defer { photoItem = nil }
+                    if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                        if let movie = try? await item.loadTransferable(type: ImportedMovieFile.self) {
+                            await store.importDisplayVideo(at: movie.url)
+                        }
+                    } else if let data = try? await item.loadTransferable(type: Data.self),
                         let image = PlatformImageLoader.image(data: data)
                     {
-                        store.displayFileName = "Photo Library"
-                        store.displayImage = image
+                        store.setStaticDisplay(image, fileName: "Photo Library")
                     }
-                    photoItem = nil
                 }
             }
     }
@@ -671,6 +693,7 @@ private struct SceneChangeWatchers: ViewModifier {
     var applyZoomToScene: (Float) -> Void
     var applyLidAngleToScene: (Float) -> Void
     var onDisplayImageChanged: (PlatformImage?) -> Void
+    var onDisplayVideoChanged: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -698,6 +721,14 @@ private struct SceneChangeWatchers: ViewModifier {
                 onDisplayImageChanged(newImage)
                 store.markDirtyForImageChange()
             }
+            .onChange(of: store.displayVideo) { _, _ in
+                // Never play() here — the store parks the recording on the
+                // playhead frame and TimelinePlaybackDriver starts it when
+                // the animation starts. Autoplaying would run the clip even
+                // while the timeline is stopped.
+                onDisplayVideoChanged()
+                store.markDirtyForImageChange()
+            }
     }
 }
 
@@ -708,7 +739,8 @@ private extension View {
         refreshMaterials: @escaping () -> Void,
         applyZoomToScene: @escaping (Float) -> Void,
         applyLidAngleToScene: @escaping (Float) -> Void,
-        onDisplayImageChanged: @escaping (PlatformImage?) -> Void
+        onDisplayImageChanged: @escaping (PlatformImage?) -> Void,
+        onDisplayVideoChanged: @escaping () -> Void
     ) -> some View {
         modifier(
             SceneChangeWatchers(
@@ -717,7 +749,8 @@ private extension View {
                 refreshMaterials: refreshMaterials,
                 applyZoomToScene: applyZoomToScene,
                 applyLidAngleToScene: applyLidAngleToScene,
-                onDisplayImageChanged: onDisplayImageChanged
+                onDisplayImageChanged: onDisplayImageChanged,
+                onDisplayVideoChanged: onDisplayVideoChanged
             )
         )
     }
@@ -764,15 +797,18 @@ private struct EditorSheetsAndAlerts: ViewModifier {
             }
             .fileImporter(
                 isPresented: $showImageImporter,
-                allowedContentTypes: [.image],
+                allowedContentTypes: [.image, .movie, .mpeg4Movie],
                 allowsMultipleSelection: false
             ) { result in
                 if case .success(let urls) = result, let url = urls.first {
                     let scoped = url.startAccessingSecurityScopedResource()
                     defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                    if let image = PlatformImageLoader.image(contentsOf: url) {
-                        store.displayFileName = url.lastPathComponent
-                        store.displayImage = image
+                    Task { @MainActor in
+                        if UTType.isDisplayVideo(url) {
+                            await store.importDisplayVideo(at: url)
+                        } else if let image = PlatformImageLoader.image(contentsOf: url) {
+                            store.setStaticDisplay(image, fileName: url.lastPathComponent)
+                        }
                     }
                 }
             }

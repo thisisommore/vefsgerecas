@@ -38,6 +38,12 @@ struct StudioBackdrop: View {
 struct TimelinePlaybackDriver: View {
     @Bindable var timeline: CameraTimeline
     var apply: () -> Void
+    /// Timeline play/pause transitions — used to start/pause the display
+    /// screen recording in lockstep with the camera animation.
+    var onPlayStateChanged: (Bool) -> Void = { _ in }
+    /// Playhead moved while paused (scrub/seek) — parks the recording on
+    /// the matching frame.
+    var onScrubbed: () -> Void = {}
 
     var body: some View {
         Color.clear
@@ -46,9 +52,11 @@ struct TimelinePlaybackDriver: View {
             .onChange(of: timeline.currentTime) { _, _ in
                 if !timeline.isPlaying {
                     apply()
+                    onScrubbed()
                 }
             }
             .onChange(of: timeline.isPlaying) { _, playing in
+                onPlayStateChanged(playing)
                 if playing {
                     apply()
                 }

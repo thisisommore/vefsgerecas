@@ -157,4 +157,15 @@ enum PlatformImageLoader {
         guard CGImageDestinationFinalize(dest) else { return nil }
         return out as Data
     }
+
+    /// Wraps a decoded CGImage (e.g. an extracted video frame) in a platform image.
+    static func image(cgImage: CGImage) -> PlatformImage {
+        #if canImport(AppKit)
+        return NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height))
+        #else
+        return UIImage(cgImage: cgImage)
+        #endif
+    }
 }

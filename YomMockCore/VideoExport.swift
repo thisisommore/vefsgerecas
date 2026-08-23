@@ -135,6 +135,10 @@ final class VideoExporter {
     /// Exports the timeline as video, rendering every frame offscreen on the
     /// GPU. `inputs` is an immutable snapshot, so the user can keep editing
     /// the live preview while the export runs.
+    ///
+    /// When the project uses a screen recording as its display content,
+    /// `videoFrameProvider` supplies the recording's frame for each output
+    /// time (seconds); it is wrapped to the clip length by the controller.
     func export(
         timeline: CameraTimeline,
         previewPoints: CGSize,
@@ -142,6 +146,7 @@ final class VideoExporter {
         inputs: OffscreenSceneRenderer.Inputs,
         options: VideoExportOptions,
         outputURL: URL,
+        videoFrameProvider: ((Double) async -> CGImage?)? = nil,
         onProgress: @MainActor @escaping (Double) -> Void
     ) async throws {
         isCancelled = false
@@ -225,6 +230,14 @@ final class VideoExporter {
 
             let time = duration * Double(frameIndex) / Double(totalFrames)
             let state = timelineSnapshot.evaluatedState(at: time)
+
+            // Screen-recording display content: swap the screen texture to
+            // the recording's exact frame at this output time before render.
+            if let videoFrameProvider {
+                var frameInputs = inputs
+                frameInputs.displayImage = await videoFrameProvider(time) ?? inputs.displayImage
+                try await renderer.update(inputs: frameInputs)
+            }
 
             let pixelBuffer = try await renderer.render(state: state, deltaTime: deltaTime)
 

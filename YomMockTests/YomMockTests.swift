@@ -5,6 +5,7 @@
 //  Created by Om More on 14/08/26.
 //
 
+import AVFoundation
 import Foundation
 import Testing
 import simd
@@ -234,4 +235,106 @@ private func angleDelta(_ lhs: Float, _ rhs: Float) -> Float {
 
 private func almostEqual(_ lhs: SIMD3<Float>, _ rhs: SIMD3<Float>, epsilon: Float = 0.0001) -> Bool {
     simd_length(lhs - rhs) < epsilon
+}
+
+// MARK: - Display video (screen recordings)
+
+struct DisplayVideoTests {
+    @Test func videoFileDetection() {
+        #expect(UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/recording.mov")))
+        #expect(UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/recording.mp4")))
+        #expect(UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/recording.m4v")))
+        #expect(!UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/screenshot.png")))
+        #expect(!UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/notes.txt")))
+        #expect(!UTType.isDisplayVideo(URL(fileURLWithPath: "/tmp/noextension")))
+    }
+
+    /// Renders a tiny 1 s H.264 clip for controller tests.
+    private func makeSampleVideo() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sample-\(UUID().uuidString)")
+            .appendingPathExtension("mp4")
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        let settings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 64,
+            AVVideoHeightKey: 64,
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
+        input.expectsMediaDataInRealTime = true
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 64,
+            kCVPixelBufferHeightKey as String: 64,
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input, sourcePixelBufferAttributes: attrs)
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        for frame in 0..<30 {
+            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.005) }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(
+                kCFAllocatorDefault, adaptor.pixelBufferPool!, &buffer)
+            guard let buffer else { throw CocoaError(.coderInvalidValue) }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            if let base = CVPixelBufferGetBaseAddress(buffer) {
+                memset(base, Int32(UInt8(20 + frame * 3)),
+                       CVPixelBufferGetDataSize(buffer))
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            let pts = CMTime(value: CMTimeValue(frame), timescale: 30)
+            adaptor.append(buffer, withPresentationTime: pts)
+        }
+        input.markAsFinished()
+        let sem = DispatchSemaphore(value: 0)
+        writer.finishWriting { sem.signal() }
+        sem.wait()
+        guard writer.status == .completed else {
+            throw writer.error ?? CocoaError(.fileWriteUnknown)
+        }
+        return url
+    }
+
+    @Test @MainActor func controllerLoadsDurationAndFrames() async throws {
+        let url = try makeSampleVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let controller = try await DisplayVideoController(url: url)
+        #expect(controller.duration > 0.9 && controller.duration < 1.2)
+        let poster = await controller.posterFrame()
+        #expect(poster != nil)
+        let mid = await controller.frame(at: controller.duration / 2)
+        #expect(mid != nil)
+    }
+
+    @Test @MainActor func controllerRejectsNonVideoFile() async {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notavideo-\(UUID().uuidString).mov")
+        try? Data("hello".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        do {
+            _ = try await DisplayVideoController(url: url)
+            Issue.record("Expected failure on non-video file")
+        } catch {
+            // expected
+        }
+    }
+
+    @Test @MainActor func setStaticDisplayClearsActiveVideo() async throws {
+        let store = YomMockStore()
+        let url = try makeSampleVideo()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await store.setDisplayVideo(at: url)
+        #expect(store.displayVideo != nil)
+        #expect(store.displayImage != nil)
+        #expect(store.displayFileName == url.lastPathComponent)
+
+        store.setStaticDisplay(nil, fileName: nil)
+        #expect(store.displayVideo == nil)
+        #expect(store.displayImage == nil)
+    }
 }
