@@ -26,7 +26,6 @@ enum StudioSceneError: LocalizedError {
 /// device model + studio lighting installation.
 @MainActor
 final class PhoneScene {
-    static let fieldOfView: Float = 60
     static let minZoom: Float = 0.06
     static let maxZoom: Float = 21
 
@@ -40,6 +39,8 @@ final class PhoneScene {
     var modelCenter = SIMD3<Float>.zero
     var panOffset = SIMD3<Float>.zero
     var hasUserInteracted = false
+    /// Virtual studio camera settings (FOV/focal length, DoF styling).
+    var cameraSettings = StudioCameraSettings()
 
     /// Loads the device model, applies materials, installs the lid rig and
     /// studio IBL. Throws on failure — the caller surfaces the error.
@@ -94,6 +95,14 @@ final class PhoneScene {
 
     func applyLidAngle(_ angle: Float) {
         lidRig?.setLidAngle(angle)
+    }
+
+    /// Applies studio camera settings (focal length / field of view) to the
+    /// live camera, preserving the current pose.
+    func applyCameraSettings(_ settings: StudioCameraSettings) {
+        guard settings != cameraSettings else { return }
+        cameraSettings = settings
+        applyCamera(from: orbitPose.position)
     }
 
     func apply(orbit: OrbitPose, zoom: Float, pan: SIMD3<Float> = .zero) {
@@ -196,9 +205,9 @@ final class PhoneScene {
     private func applyCamera(from position: SIMD3<Float>) {
         guard let camera else { return }
         if var perspective = camera.components[PerspectiveCameraComponent.self],
-            abs(perspective.fieldOfViewInDegrees - Self.fieldOfView) > 0.01
+            abs(perspective.fieldOfViewInDegrees - cameraSettings.fieldOfView) > 0.01
         {
-            perspective.fieldOfViewInDegrees = Self.fieldOfView
+            perspective.fieldOfViewInDegrees = cameraSettings.fieldOfView
             camera.components.set(perspective)
         }
         // Keep a stable up when near the pole to avoid 180° roll.

@@ -29,6 +29,10 @@ struct InspectorPanel: View {
 
                     Divider()
 
+                    CameraInspectorPanel(camera: $store.camera)
+
+                    Divider()
+
                     PhoneInspectorPanel(
                         selectedColor: $store.selectedColor,
                         customColor: $store.customColor
@@ -96,6 +100,61 @@ private struct LidInspectorPanel: View {
                 )
                 .controlSize(.small)
                 Text("\(Int(lidAngle.rounded()))°")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 34, alignment: .trailing)
+            }
+        }
+    }
+}
+
+// MARK: - Camera
+
+private struct CameraInspectorPanel: View {
+    @Binding var camera: StudioCameraSettings
+
+    private var focalLengthBinding: Binding<Float> {
+        Binding(
+            get: { camera.focalLength },
+            set: { camera.setFocalLength($0) }
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            inspectorHeader(title: "CAMERA", subtitle: "Studio lens")
+
+            HStack(spacing: 8) {
+                Text("FOCAL")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 36, alignment: .leading)
+                Slider(value: focalLengthBinding, in: StudioCameraSettings.minFocalLength...StudioCameraSettings.maxFocalLength)
+                    .controlSize(.small)
+                Text("\(Int(camera.focalLength.rounded()))mm")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
+            .help("Equivalent focal length — \(Int(camera.fieldOfView.rounded()))° field of view")
+
+            HStack(spacing: 8) {
+                Text("FOV")
+                    .font(.system(size: 9, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .frame(width: 36, alignment: .leading)
+                Slider(
+                    value: $camera.fieldOfView,
+                    in: StudioCameraSettings.minFieldOfView...StudioCameraSettings.maxFieldOfView
+                )
+                .controlSize(.small)
+                Text("\(Int(camera.fieldOfView.rounded()))°")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 34, alignment: .trailing)

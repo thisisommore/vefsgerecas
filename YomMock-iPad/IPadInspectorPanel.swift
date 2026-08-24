@@ -27,6 +27,8 @@ struct IPadInspectorPanel: View {
                     lidSection
                 }
 
+                cameraSection
+
                 finishSection
                 displaySection
                 backdropSection
@@ -88,6 +90,53 @@ struct IPadInspectorPanel: View {
                     .frame(width: 42, alignment: .trailing)
             }
         }
+    }
+
+    private var cameraSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("CAMERA", subtitle: "Studio lens")
+            VStack(alignment: .leading, spacing: 10) {
+                cameraRow(label: "FOCAL") {
+                    Slider(
+                        value: Binding(
+                            get: { store.camera.focalLength },
+                            set: { store.camera.setFocalLength($0) }
+                        ),
+                        in: StudioCameraSettings.minFocalLength...StudioCameraSettings.maxFocalLength
+                    )
+                    valueLabel("\(Int(store.camera.focalLength.rounded()))mm")
+                }
+
+                cameraRow(label: "FOV") {
+                    Slider(
+                        value: $store.camera.fieldOfView,
+                        in: StudioCameraSettings.minFieldOfView...StudioCameraSettings.maxFieldOfView
+                    )
+                    valueLabel("\(Int(store.camera.fieldOfView.rounded()))°")
+                }
+            }
+        }
+    }
+
+    private func cameraRow(label: String, @ViewBuilder slider: () -> some View) -> some View {
+        HStack(spacing: 12) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .tracking(0.7)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(width: 48, alignment: .leading)
+            slider()
+        }
+    }
+
+    private func valueLabel(_ text: String) -> some View {
+        Text(text)
+            .monospacedDigit()
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+            .frame(width: 48, alignment: .trailing)
     }
 
     private var finishSection: some View {

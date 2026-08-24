@@ -97,6 +97,9 @@ struct ContentView: View {
             applyLidAngleToScene: { value in
                 scene.applyLidAngle(value)
             },
+            applyCameraSettingsToScene: { value in
+                scene.applyCameraSettings(value)
+            },
             onDisplayImageChanged: { image in
                 setDisplayScreenshot(image)
             },
@@ -122,7 +125,8 @@ struct ContentView: View {
 
                 let camera = PerspectiveCamera()
                 camera.name = "StudioCamera"
-                camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
+                camera.camera.fieldOfViewInDegrees = store.camera.fieldOfView
+                scene.cameraSettings = store.camera
                 let startState = store.timeline.evaluatedState(at: 0)
                 camera.look(at: .zero, from: startState.orbit.position, relativeTo: nil)
                 scene.camera = camera
@@ -466,8 +470,8 @@ struct ContentView: View {
                 continue
             }
             scene.camera = entity
-            if abs(perspective.fieldOfViewInDegrees - PhoneScene.fieldOfView) > 0.01 {
-                perspective.fieldOfViewInDegrees = PhoneScene.fieldOfView
+            if abs(perspective.fieldOfViewInDegrees - scene.cameraSettings.fieldOfView) > 0.01 {
+                perspective.fieldOfViewInDegrees = scene.cameraSettings.fieldOfView
                 entity.components.set(perspective)
             }
         }
@@ -490,6 +494,7 @@ private struct MacEditorChangeWatchers: ViewModifier {
     var refreshMaterials: () -> Void
     var applyZoomToScene: (Float) -> Void
     var applyLidAngleToScene: (Float) -> Void
+    var applyCameraSettingsToScene: (StudioCameraSettings) -> Void
     var onDisplayImageChanged: (PlatformImage?) -> Void
     var onDisplayVideoChanged: () -> Void
 
@@ -514,6 +519,10 @@ private struct MacEditorChangeWatchers: ViewModifier {
             }
             .onChange(of: store.background) { _, _ in store.markDirty() }
             .onChange(of: store.customBackground) { _, _ in store.markDirty() }
+            .onChange(of: store.camera) { _, value in
+                applyCameraSettingsToScene(value)
+                store.markDirty()
+            }
             .onChange(of: store.zoom) { _, value in
                 applyZoomToScene(value)
                 store.markDirty()

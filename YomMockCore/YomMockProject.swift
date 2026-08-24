@@ -135,8 +135,9 @@ struct YomMockProjectDocument: Codable, Equatable {
     var displayRelativePath: String? // e.g. "assets/display.png"
     var displayFileName: String?
     var displayVideoRelativePath: String? // e.g. "assets/display-video.mov"; nil = static screenshot
+    var camera: StudioCameraSettings? // virtual studio camera; nil in pre-camera projects = default
 
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.version == rhs.version
@@ -154,6 +155,7 @@ struct YomMockProjectDocument: Codable, Equatable {
             && lhs.displayRelativePath == rhs.displayRelativePath
             && lhs.displayFileName == rhs.displayFileName
             && lhs.displayVideoRelativePath == rhs.displayVideoRelativePath
+            && lhs.camera == rhs.camera
     }
 }
 

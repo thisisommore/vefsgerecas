@@ -22,6 +22,7 @@ final class YomMockStore {
     var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     var background: StudioBackground = .white
     var customBackground = Color.white
+    var camera = StudioCameraSettings()
     var zoom: Float = 1
     var timeline: CameraTimeline = CameraTimeline.demo
     var displayImage: PlatformImage?
@@ -156,7 +157,8 @@ final class YomMockStore {
             checkpoints: checkpoints,
             selectedCheckpointID: timeline.selectedCheckpointID?.uuidString,
             displayRelativePath: displayImage == nil ? nil : "assets/\(YomMockProject.displayFileName)",
-            displayFileName: displayFileName
+            displayFileName: displayFileName,
+            camera: camera
         )
         return doc
     }
@@ -175,6 +177,7 @@ final class YomMockStore {
         if let pc = doc.customBackground {
             customBackground = pc.color
         }
+        camera = doc.camera ?? .default
         zoom = doc.zoom
 
         let newCheckpoints: [CameraCheckpoint] = doc.checkpoints.map { pc in
@@ -240,6 +243,7 @@ final class YomMockStore {
         customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
         background = .white
         customBackground = Color.white
+        camera = .default
         zoom = 1
         timeline = CameraTimeline.demo(for: .iPhone)
         displayVideo?.pause()
@@ -419,7 +423,8 @@ final class YomMockStore {
             displayImage: displayCG,
             backgroundTop: top,
             backgroundBottom: bottom,
-            transparentBackground: transparentBackground
+            transparentBackground: transparentBackground,
+            camera: camera
         )
     }
 
@@ -448,7 +453,7 @@ final class YomMockStore {
         let state = timeline.evaluatedState()
         let size = VideoExportOptions(resolution: .p2160).outputSize(
             previewPoints: previewPoints, backingScale: 1)
-        let key = "\(device.rawValue)-\(Int(size.width))x\(Int(size.height))-\(format.rawValue)-\(transparentBackground ? "t" : "o")"
+        let key = "\(device.rawValue)-\(Int(size.width))x\(Int(size.height))-\(format.rawValue)-\(transparentBackground ? "t" : "o")-cam\(Int(camera.fieldOfView * 10))"
         if stillRenderer == nil || stillRendererKey != key {
             stillRenderer = try await OffscreenSceneRenderer(
                 outputSize: size, previewPointSize: previewPoints, inputs: inputs)

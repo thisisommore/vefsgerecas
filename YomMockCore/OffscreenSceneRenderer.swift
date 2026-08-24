@@ -87,6 +87,7 @@ final class OffscreenSceneRenderer {
         var backgroundTop: PlatformColor
         var backgroundBottom: PlatformColor
         var transparentBackground: Bool = false
+        var camera: StudioCameraSettings = .default
     }
 
     let outputSize: CGSize
@@ -242,7 +243,7 @@ final class OffscreenSceneRenderer {
 
         let camera = PerspectiveCamera()
         camera.name = "ExportCamera"
-        camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
+        camera.camera.fieldOfViewInDegrees = inputs.camera.fieldOfView
         scene.camera = camera
         renderer.entities.append(camera)
         renderer.activeCamera = camera

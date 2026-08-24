@@ -77,6 +77,9 @@ struct IPadRootView: View {
                     scene.applyLidAngle(value)
                     refreshMaterials()
                 },
+                applyCameraSettingsToScene: { value in
+                    scene.applyCameraSettings(value)
+                },
                 onDisplayImageChanged: { image in
                     setDisplayScreenshot(image)
                 },
@@ -163,7 +166,8 @@ struct IPadRootView: View {
 
             let camera = PerspectiveCamera()
             camera.name = "StudioCamera"
-            camera.camera.fieldOfViewInDegrees = PhoneScene.fieldOfView
+            camera.camera.fieldOfViewInDegrees = store.camera.fieldOfView
+            scene.cameraSettings = store.camera
             let startState = store.timeline.evaluatedState(at: 0)
             camera.look(at: .zero, from: startState.orbit.position, relativeTo: nil)
             scene.camera = camera
@@ -687,8 +691,8 @@ struct IPadRootView: View {
                 continue
             }
             scene.camera = entity
-            if abs(perspective.fieldOfViewInDegrees - PhoneScene.fieldOfView) > 0.01 {
-                perspective.fieldOfViewInDegrees = PhoneScene.fieldOfView
+            if abs(perspective.fieldOfViewInDegrees - scene.cameraSettings.fieldOfView) > 0.01 {
+                perspective.fieldOfViewInDegrees = scene.cameraSettings.fieldOfView
                 entity.components.set(perspective)
             }
         }
@@ -747,6 +751,7 @@ private struct SceneChangeWatchers: ViewModifier {
     var refreshMaterials: () -> Void
     var applyZoomToScene: (Float) -> Void
     var applyLidAngleToScene: (Float) -> Void
+    var applyCameraSettingsToScene: (StudioCameraSettings) -> Void
     var onDisplayImageChanged: (PlatformImage?) -> Void
     var onDisplayVideoChanged: () -> Void
 
@@ -766,6 +771,10 @@ private struct SceneChangeWatchers: ViewModifier {
             }
             .onChange(of: store.zoom) { _, value in
                 applyZoomToScene(value)
+                store.markDirty()
+            }
+            .onChange(of: store.camera) { _, value in
+                applyCameraSettingsToScene(value)
                 store.markDirty()
             }
             .onChange(of: store.lidAngle) { _, value in
@@ -794,6 +803,7 @@ private extension View {
         refreshMaterials: @escaping () -> Void,
         applyZoomToScene: @escaping (Float) -> Void,
         applyLidAngleToScene: @escaping (Float) -> Void,
+        applyCameraSettingsToScene: @escaping (StudioCameraSettings) -> Void,
         onDisplayImageChanged: @escaping (PlatformImage?) -> Void,
         onDisplayVideoChanged: @escaping () -> Void
     ) -> some View {
@@ -804,6 +814,7 @@ private extension View {
                 refreshMaterials: refreshMaterials,
                 applyZoomToScene: applyZoomToScene,
                 applyLidAngleToScene: applyLidAngleToScene,
+                applyCameraSettingsToScene: applyCameraSettingsToScene,
                 onDisplayImageChanged: onDisplayImageChanged,
                 onDisplayVideoChanged: onDisplayVideoChanged
             )
