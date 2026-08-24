@@ -123,6 +123,7 @@ struct YomMockApp: App {
     @NSApplicationDelegateAdaptor(YomMockAppDelegate.self) private var appDelegate
     @FocusedValue(\.yomMockStore) private var focusedStore
     @Environment(\.openWindow) private var openWindow
+    @State private var subscriptions = SubscriptionManager.shared
 
     init() {
         SubscriptionManager.configure()
@@ -165,14 +166,26 @@ struct YomMockApp: App {
 
                 Divider()
 
-                Button("Export Current Frame…") {
+                Button {
                     focusedStore?.exportFrame()
+                } label: {
+                    if subscriptions.isPro {
+                        Text("Export Current Frame…")
+                    } else {
+                        Label("Get Pro to Export Frame…", systemImage: "crown")
+                    }
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(focusedStore == nil)
 
-                Button("Export Video…") {
+                Button {
                     focusedStore?.exportVideo()
+                } label: {
+                    if subscriptions.isPro {
+                        Text("Export Video…")
+                    } else {
+                        Label("Get Pro to Export Video…", systemImage: "crown")
+                    }
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift, .option])
                 .disabled(focusedStore == nil)

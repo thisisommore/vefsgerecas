@@ -366,34 +366,51 @@ struct IPadRootView: View {
 
     private var exportMenu: some View {
         Menu {
-            Button {
-                if store.requireProForExport() {
+            if store.canExport {
+                Button {
                     showFrameExportOptions = true
+                } label: {
+                    Label("Share Frame…", systemImage: "photo")
                 }
-            } label: {
-                Label("Share Frame…", systemImage: "photo")
-            }
-            .keyboardShortcut("e", modifiers: [.command, .shift])
+                .keyboardShortcut("e", modifiers: [.command, .shift])
 
-            Menu("Share Frame Quickly") {
-                Button {
-                    shareQuickFrame(format: .png, transparentBackground: false)
-                } label: { Label("PNG (opaque)", systemImage: "photo") }
-                Button {
-                    shareQuickFrame(format: .png, transparentBackground: true)
-                } label: { Label("PNG (transparent)", systemImage: "checkerboard.rectangle") }
-                Button {
-                    shareQuickFrame(format: .webp, transparentBackground: true)
-                } label: { Label("WebP (transparent)", systemImage: "photo.on.rectangle.angled") }
-            }
+                Menu("Share Frame Quickly") {
+                    Button {
+                        shareQuickFrame(format: .png, transparentBackground: false)
+                    } label: { Label("PNG (opaque)", systemImage: "photo") }
+                    Button {
+                        shareQuickFrame(format: .png, transparentBackground: true)
+                    } label: { Label("PNG (transparent)", systemImage: "checkerboard.rectangle") }
+                    Button {
+                        shareQuickFrame(format: .webp, transparentBackground: true)
+                    } label: { Label("WebP (transparent)", systemImage: "photo.on.rectangle.angled") }
+                }
 
-            Button {
-                store.exportVideo()
-            } label: {
-                Label("Export Video…", systemImage: "film")
+                Button {
+                    store.exportVideo()
+                } label: {
+                    Label("Export Video…", systemImage: "film")
+                }
+            } else {
+                // Non-Pro: the whole menu collapses to the upgrade pitch.
+                Button {
+                    store.showProUpgradePrompt = true
+                } label: {
+                    Label("Get Pro to Export", systemImage: "crown")
+                }
             }
         } label: {
             chromeIcon("square.and.arrow.up")
+                .overlay(alignment: .bottomTrailing) {
+                    if !store.canExport {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(3)
+                            .background(Circle().fill(Color.accentColor))
+                            .offset(x: 3, y: 3)
+                    }
+                }
         }
         .sheet(isPresented: $showFrameExportOptions) {
             IPadFrameExportOptionsView(store: store) { url in
