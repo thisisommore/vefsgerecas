@@ -16,9 +16,9 @@ enum ProConstants {
     static let apiKey = "test_AtWicvLnZsCwNvgutrzHtxQhfpb"
     static let entitlementID = "yommock_pro"
 
-    static let monthlyProductID = "monthly"
-    static let yearlyProductID = "yearly"
-    static let lifetimeProductID = "lifetime"
+    static let monthlyProductID = "subscription_monthly_1"
+    static let yearlyProductID = "subscription_yearly_1"
+    static let lifetimeProductID = "subscription_lifetime_1"
 }
 
 enum PurchaseOutcome: Equatable {
@@ -56,7 +56,7 @@ final class SubscriptionManager {
     static func configure() {
         guard !Purchases.isConfigured else { return }
         #if DEBUG
-        Purchases.logLevel = .debug
+            Purchases.logLevel = .debug
         #endif
         Purchases.configure(withAPIKey: ProConstants.apiKey)
     }
@@ -90,7 +90,9 @@ final class SubscriptionManager {
             let result = try await Purchases.shared.purchase(package: package)
             if result.userCancelled { return .cancelled }
             customerInfo = result.customerInfo
-            return isPro ? .unlocked : .failed("Purchase completed but \(ProConstants.entitlementID) is not active.")
+            return isPro
+                ? .unlocked
+                : .failed("Purchase completed but \(ProConstants.entitlementID) is not active.")
         } catch {
             return .failed(error.localizedDescription)
         }
@@ -99,7 +101,11 @@ final class SubscriptionManager {
     func restore() async -> PurchaseOutcome {
         do {
             customerInfo = try await Purchases.shared.restorePurchases()
-            return isPro ? .unlocked : .failed("No purchase with an active \(ProConstants.entitlementID) entitlement was found.")
+            return isPro
+                ? .unlocked
+                : .failed(
+                    "No purchase with an active \(ProConstants.entitlementID) entitlement was found."
+                )
         } catch {
             return .failed(error.localizedDescription)
         }
