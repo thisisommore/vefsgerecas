@@ -7,32 +7,9 @@
 //  Purchase/restore logic lives in ProSupport.swift (SubscriptionManager).
 //
 
-import SwiftUI
 import RevenueCat
 import RevenueCatUI
-
-// MARK: - Paywall
-
-/// Presents the remotely configured RevenueCat Paywall for the current
-/// offering. Purchases inside the paywall flow back through
-/// `Purchases.shared.customerInfoStream`, so no callbacks are needed here.
-struct ProUpgradeButton: View {
-    @State private var showPaywall = false
-
-    var body: some View {
-        Button {
-            showPaywall = true
-        } label: {
-            Label("Upgrade to Pro", systemImage: "crown.fill")
-        }
-        .sheet(isPresented: $showPaywall) {
-            PaywallView()
-                #if os(macOS)
-                .frame(minWidth: 720, minHeight: 560)
-                #endif
-        }
-    }
-}
+import SwiftUI
 
 // MARK: - Manage subscription
 
@@ -41,28 +18,29 @@ struct ProUpgradeButton: View {
 struct ManageSubscriptionButton: View {
     @Environment(\.openURL) private var openURL
     #if os(iOS)
-    @State private var showCustomerCenter = false
+        @State private var showCustomerCenter = false
     #endif
 
     var body: some View {
         Button {
             #if os(iOS)
-            showCustomerCenter = true
+                showCustomerCenter = true
             #else
-            openURL(Self.manageSubscriptionsURL)
+                openURL(Self.manageSubscriptionsURL)
             #endif
         } label: {
             Label("Manage Subscription", systemImage: "person.crop.circle")
         }
         #if os(iOS)
-        .sheet(isPresented: $showCustomerCenter) {
-            CustomerCenterView()
-        }
+            .sheet(isPresented: $showCustomerCenter) {
+                CustomerCenterView()
+            }
         #endif
     }
 
     #if os(macOS)
-    private static let manageSubscriptionsURL = URL(string: "https://apps.apple.com/account/subscriptions")!
+        private static let manageSubscriptionsURL = URL(
+            string: "https://apps.apple.com/account/subscriptions")!
     #endif
 }
 
@@ -132,14 +110,13 @@ struct SubscriptionSettingsView: View {
             ProStatusSection(manager: manager)
 
             if !manager.isPro {
-                Section {
-                    ProUpgradeButton()
-                }
-
                 Section("Products") {
-                    PackagePurchaseRow(title: "Monthly", package: manager.monthlyPackage, purchase: run)
-                    PackagePurchaseRow(title: "Yearly", package: manager.yearlyPackage, purchase: run)
-                    PackagePurchaseRow(title: "Lifetime", package: manager.lifetimePackage, purchase: run)
+                    PackagePurchaseRow(
+                        title: "Monthly", package: manager.monthlyPackage, purchase: run)
+                    PackagePurchaseRow(
+                        title: "Yearly", package: manager.yearlyPackage, purchase: run)
+                    PackagePurchaseRow(
+                        title: "Lifetime", package: manager.lifetimePackage, purchase: run)
                 }
             }
 
