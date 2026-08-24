@@ -1,0 +1,107 @@
+# Release (tag only)
+#
+# On MARKETING_VERSION change (YomMock.xcodeproj/project.pbxproj) on main,
+# create an annotated git tag vX.Y.Z if it does not already exist.
+# No archive, no App Store upload, no GitHub Release — tags only.
+#
+# Adapted from the PiDevApp release workflow (which stops after tagging so
+# TestFlight / App Store can stay manual).
+#
+# Trigger:
+#   - push to main that touches YomMock.xcodeproj/project.pbxproj
+#   - workflow_dispatch with optional version override
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "YomMock.xcodeproj/project.pbxproj"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (e.g. 1.2.3). Defaults to MARKETING_VERSION from project.pbxproj"
+        required: false
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve version and decide if tag is needed
+        id: version
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          PBXPROJ="YomMock.xcodeproj/project.pbxproj"
+
+          if [ -n "${MANUAL_VERSION:-}" ]; then
+            VERSION="$MANUAL_VERSION"
+            echo "Manual version override: $VERSION"
+          else
+            # First MARKETING_VERSION in the pbxproj is the macOS app target
+            # (the YomMock-iPad target is kept at the same version).
+            VERSION=$(grep -m1 'MARKETING_VERSION' "$PBXPROJ" | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' | tr -d ' "')
+            if [ -z "$VERSION" ]; then
+              echo "::error::Could not extract MARKETING_VERSION from $PBXPROJ"
+              exit 1
+            fi
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved MARKETING_VERSION: $VERSION"
+
+          git fetch --tags --force 2>/dev/null || true
+
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Tag v$VERSION already exists — no new version, skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "push" ]; then
+            PREV=$(git show "HEAD~1:$PBXPROJ" 2>/dev/null | grep -m1 'MARKETING_VERSION' | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' | tr -d ' "' || echo "")
+            echo "Previous MARKETING_VERSION (HEAD~1): ${PREV:-<none>}"
+            if [ -n "$PREV" ] && [ "$VERSION" = "$PREV" ]; then
+              echo "MARKETING_VERSION unchanged since HEAD~1 but tag v$VERSION missing — will create tag."
+            fi
+          fi
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Will create tag v$VERSION"
+
+      - name: Early exit — version already tagged
+        if: steps.version.outputs.changed == 'false'
+        run: |
+          echo "No new version to tag. Exiting cleanly."
+
+      - name: Create and push tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          TAG="v${VERSION}"
+          git tag -a "$TAG" -m "YomMock ${VERSION}"
+          git push origin "$TAG"
+          echo "Created and pushed tag $TAG"
