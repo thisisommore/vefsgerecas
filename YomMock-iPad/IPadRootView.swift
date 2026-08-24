@@ -265,6 +265,26 @@ struct IPadRootView: View {
             Spacer()
 
             HStack(spacing: 4) {
+                Button {
+                    store.undo()
+                } label: {
+                    chromeIcon("arrow.uturn.backward")
+                }
+                .buttonStyle(GlassCircleButtonStyle())
+                .disabled(!store.canUndo)
+                .keyboardShortcut("z", modifiers: .command)
+                .accessibilityLabel("Undo")
+
+                Button {
+                    store.redo()
+                } label: {
+                    chromeIcon("arrow.uturn.forward")
+                }
+                .buttonStyle(GlassCircleButtonStyle())
+                .disabled(!store.canRedo)
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .accessibilityLabel("Redo")
+
                 PhotosPicker(selection: $photoItem, matching: .any(of: [.images, .videos])) {
                     chromeIcon("photo.on.rectangle.angled")
                 }

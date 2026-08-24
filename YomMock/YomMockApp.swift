@@ -136,6 +136,20 @@ struct YomMockApp: App {
         }
         .defaultSize(width: 960, height: 720)
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    focusedStore?.undo()
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!(focusedStore?.canUndo ?? false))
+
+                Button("Redo") {
+                    focusedStore?.redo()
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(!(focusedStore?.canRedo ?? false))
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New Project") {
                     focusedStore?.newProject()

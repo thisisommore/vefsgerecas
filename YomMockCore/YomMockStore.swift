@@ -11,6 +11,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Observation
 
+/// One point in the edit history. The document captures every savable
+/// field; the display image is retained by reference (cheap) so replacing
+/// a screenshot stays undoable, and the recording URL lets undo reattach
+/// the live player when needed.
+private struct EditorSnapshot: Equatable {
+    var document: YomMockProjectDocument
+    var displayImage: PlatformImage?
+    var displayFileName: String?
+    var displayVideoURL: URL?
+}
+
 @MainActor
 @Observable
 final class YomMockStore {
@@ -132,9 +143,114 @@ final class YomMockStore {
 
     var canSave: Bool { true }
 
+    // MARK: - Undo / Redo
+
+    private var undoStack: [EditorSnapshot] = []
+    private var redoStack: [EditorSnapshot] = []
+    /// Editable state as of the last history boundary — what gets pushed
+    /// onto the undo stack when the next distinct edit lands.
+    private var baseline: EditorSnapshot?
+    /// System-uptime of the last recorded edit; marks within 0.6s coalesce
+    /// into one undo step (slider drags, gesture streams).
+    private var lastUndoRecordTime: TimeInterval?
+    /// Internal-settable so tests can force distinct steps.
+    static var undoCoalesceWindow: TimeInterval = 0.6
+    private static let maxUndoSteps = 60
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    /// Records an undo boundary for the current user edit. Called from
+    /// `markDirty()` / `markDirtyForImageChange()` — i.e. after every
+    /// user-driven mutation — so no call site can forget it.
+    func recordUndoEdit() {
+        guard !isRestoring, !timeline.isPlaying else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let snapshot = makeEditorSnapshot()
+        guard let baselineSnapshot = baseline else {
+            baseline = snapshot
+            return
+        }
+        guard snapshot != baselineSnapshot else { return }  // no net change
+        if let last = lastUndoRecordTime, now - last < Self.undoCoalesceWindow {
+            // Same drag/gesture — extend the current undo step. The baseline
+            // keeps the state at the step's start so undo returns there.
+            lastUndoRecordTime = now
+            redoStack.removeAll()
+            return
+        }
+        undoStack.append(baselineSnapshot)
+        if undoStack.count > Self.maxUndoSteps {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+        baseline = snapshot
+        lastUndoRecordTime = now
+    }
+
+    func undo() {
+        guard let snapshot = undoStack.popLast(), !timeline.isPlaying else { return }
+        redoStack.append(makeEditorSnapshot())
+        applyEditorSnapshot(snapshot)
+        baseline = snapshot
+        lastUndoRecordTime = nil
+        markDirty()
+    }
+
+    func redo() {
+        guard let snapshot = redoStack.popLast(), !timeline.isPlaying else { return }
+        undoStack.append(makeEditorSnapshot())
+        applyEditorSnapshot(snapshot)
+        baseline = snapshot
+        lastUndoRecordTime = nil
+        markDirty()
+    }
+
+    private func makeEditorSnapshot() -> EditorSnapshot {
+        EditorSnapshot(
+            document: makeDocument(),
+            displayImage: displayImage,
+            displayFileName: displayFileName,
+            displayVideoURL: displayVideo?.url
+        )
+    }
+
+    /// Restores an edit-history snapshot. Unlike `applyDocument` this leaves
+    /// `lastSavedSnapshot` untouched — undoing a saved edit must re-dirty.
+    private func applyEditorSnapshot(_ snapshot: EditorSnapshot) {
+        isRestoring = true
+        defer { isRestoring = false }
+
+        applyDocumentFields(snapshot.document)
+
+        displayImage = snapshot.displayImage
+        displayFileName = snapshot.displayFileName
+        if let video = displayVideo, video.url == snapshot.displayVideoURL {
+            // Same recording — keep the live player, re-park on the playhead.
+            video.scrub(to: min(timeline.currentTime, video.duration))
+        } else {
+            displayVideo?.pause()
+            displayVideo = nil
+            if let url = snapshot.displayVideoURL {
+                let posterName = snapshot.displayFileName
+                Task { @MainActor in
+                    await restoreDisplayVideo(at: url, expectedPosterName: posterName)
+                }
+            }
+        }
+    }
+
+    private func clearUndoHistory() {
+        undoStack.removeAll()
+        redoStack.removeAll()
+        baseline = makeEditorSnapshot()
+        lastUndoRecordTime = nil
+    }
+
     init() {
         isDirty = false
         lastSavedSnapshot = makeDocument()
+        baseline = makeEditorSnapshot()
     }
 
     // MARK: - Document snapshot
@@ -167,6 +283,22 @@ final class YomMockStore {
         isRestoring = true
         defer { isRestoring = false }
 
+        applyDocumentFields(doc)
+
+        self.displayImage = displayImage
+        self.displayFileName = doc.displayFileName
+        // The looping player is restored asynchronously by openProject.
+        displayVideo = nil
+
+        lastSavedSnapshot = doc
+        isDirty = false
+        projectError = nil
+        clearUndoHistory()
+    }
+
+    /// Applies the savable fields of a document to live state. Shared by
+    /// project open and undo/redo restore.
+    private func applyDocumentFields(_ doc: YomMockProjectDocument) {
         device = Device(rawValue: doc.deviceRaw ?? "") ?? .iPhone
         lidAngle = doc.lidAngle ?? MacBookLidRig.defaultOpenAngle
         selectedColor = iPhoneColor.from(projectRaw: doc.selectedColorRaw)
@@ -194,19 +326,11 @@ final class YomMockStore {
         } else {
             timeline.selectedCheckpointID = timeline.checkpoints.first?.id
         }
-
-        self.displayImage = displayImage
-        self.displayFileName = doc.displayFileName
-        // The looping player is restored asynchronously by openProject.
-        displayVideo = nil
-
-        lastSavedSnapshot = doc
-        isDirty = false
-        projectError = nil
     }
 
     func markDirty() {
         guard !isRestoring else { return }
+        recordUndoEdit()
         let current = makeDocument()
         if let last = lastSavedSnapshot, current == last {
             isDirty = false
@@ -224,6 +348,7 @@ final class YomMockStore {
     /// For display image changes where document equality can't detect pixels, force dirty.
     func markDirtyForImageChange() {
         guard !isRestoring else { return }
+        recordUndoEdit()
         isDirty = true
     }
 
@@ -255,6 +380,7 @@ final class YomMockStore {
         lastSavedSnapshot = makeDocument()
         isDirty = false
         projectError = nil
+        clearUndoHistory()
     }
 
     /// On a device switch, if the timeline is still the untouched default demo
