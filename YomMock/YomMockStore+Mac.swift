@@ -90,6 +90,7 @@ extension YomMockStore {
     /// Renders the current timeline state offscreen on the GPU (4K class) and
     /// saves it after asking for a location. Transparent background removes the studio gradient.
     func exportCurrentFrame() {
+        guard requireProForExport() else { return }
         // Capture pending options at call time
         let format = pendingFrameFormat
         let transparent = pendingFrameTransparent
@@ -166,6 +167,7 @@ extension YomMockStore {
 
     /// Asks for a location, then kicks off the offscreen GPU render.
     func startVideoExport() {
+        guard requireProForExport() else { return }
         let options = pendingVideoOptions
         let base = projectURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
         let panel = NSSavePanel()

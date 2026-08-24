@@ -120,6 +120,9 @@ struct IPadRootView: View {
             .sheet(isPresented: $showProSheet) {
                 SubscriptionSettingsView()
             }
+            .sheet(isPresented: $store.showProUpgradePrompt) {
+                SubscriptionSettingsView()
+            }
             .sheet(isPresented: $showInspectorSheet) {
                 IPadInspectorPanel(
                     store: store,
@@ -364,7 +367,9 @@ struct IPadRootView: View {
     private var exportMenu: some View {
         Menu {
             Button {
-                showFrameExportOptions = true
+                if store.requireProForExport() {
+                    showFrameExportOptions = true
+                }
             } label: {
                 Label("Share Frame…", systemImage: "photo")
             }
@@ -372,34 +377,13 @@ struct IPadRootView: View {
 
             Menu("Share Frame Quickly") {
                 Button {
-                    Task {
-                        do {
-                            let url = try await store.exportFrameForSharing(format: .png, transparentBackground: false)
-                            sharePayload = SharePayload(items: [url])
-                        } catch {
-                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                        }
-                    }
+                    shareQuickFrame(format: .png, transparentBackground: false)
                 } label: { Label("PNG (opaque)", systemImage: "photo") }
                 Button {
-                    Task {
-                        do {
-                            let url = try await store.exportFrameForSharing(format: .png, transparentBackground: true)
-                            sharePayload = SharePayload(items: [url])
-                        } catch {
-                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                        }
-                    }
+                    shareQuickFrame(format: .png, transparentBackground: true)
                 } label: { Label("PNG (transparent)", systemImage: "checkerboard.rectangle") }
                 Button {
-                    Task {
-                        do {
-                            let url = try await store.exportFrameForSharing(format: .webp, transparentBackground: true)
-                            sharePayload = SharePayload(items: [url])
-                        } catch {
-                            store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                        }
-                    }
+                    shareQuickFrame(format: .webp, transparentBackground: true)
                 } label: { Label("WebP (transparent)", systemImage: "photo.on.rectangle.angled") }
             }
 
@@ -518,6 +502,19 @@ struct IPadRootView: View {
     }
 
     // MARK: - Actions
+
+    /// Pro-gated quick share: non-Pro users get the upgrade prompt instead.
+    private func shareQuickFrame(format: YomMockStore.FrameExportFormat, transparentBackground: Bool) {
+        guard store.requireProForExport() else { return }
+        Task {
+            do {
+                let url = try await store.exportFrameForSharing(format: format, transparentBackground: transparentBackground)
+                sharePayload = SharePayload(items: [url])
+            } catch {
+                store.projectError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
 
     private func saveCheckpoint() {
         scene.syncPoseFromCamera(zoom: store.zoom)

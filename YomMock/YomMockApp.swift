@@ -166,7 +166,7 @@ struct YomMockApp: App {
                 Divider()
 
                 Button("Export Current Frame…") {
-                    focusedStore?.showFrameOptions = true
+                    focusedStore?.exportFrame()
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(focusedStore == nil)

@@ -56,6 +56,24 @@ final class YomMockStore {
     var pendingFrameTransparent: Bool = false
     var showFrameOptions = false
 
+    // MARK: - Pro gating
+
+    /// Set when a non-Pro user attempts to export; each platform's root view
+    /// presents the upgrade flow in response. Exporting is Pro-only.
+    var showProUpgradePrompt = false
+
+    /// Frames and video may only leave the app with an active Pro entitlement.
+    var canExport: Bool { SubscriptionManager.shared.isPro }
+
+    /// Gate shared by every export entry point. Returns `true` when the user
+    /// may export; otherwise flags the upgrade prompt and returns `false`.
+    @discardableResult
+    func requireProForExport() -> Bool {
+        guard !canExport else { return true }
+        showProUpgradePrompt = true
+        return false
+    }
+
     enum FrameExportFormat: String, CaseIterable, Identifiable {
         case png = "PNG"
         case webp = "WebP"
@@ -493,7 +511,15 @@ final class YomMockStore {
     // MARK: - Video export
 
     func exportVideo() {
+        guard requireProForExport() else { return }
         showVideoOptions = true
+    }
+
+    /// Opens the frame-export options flow (macOS menu command). Pro-gated
+    /// like video export.
+    func exportFrame() {
+        guard requireProForExport() else { return }
+        showFrameOptions = true
     }
 
     /// Runs the offscreen GPU video export to `outputURL`. The caller has
@@ -587,11 +613,13 @@ final class YomMockStore {
 enum YomMockExportError: LocalizedError {
     case renderUnavailable
     case frameEncodeFailed
+    case proRequired
 
     var errorDescription: String? {
         switch self {
         case .renderUnavailable: "The frame renderer could not be created."
         case .frameEncodeFailed: "Could not encode the rendered frame."
+        case .proRequired: "Exporting requires YomMock Pro."
         }
     }
 }

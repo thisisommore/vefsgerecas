@@ -59,6 +59,10 @@ struct ContentView: View {
         .sheet(isPresented: $store.showFrameOptions) {
             FrameExportOptionsView(store: store)
         }
+        .sheet(isPresented: $store.showProUpgradePrompt) {
+            SubscriptionSettingsView()
+                .frame(minWidth: 460, minHeight: 420)
+        }
     }
 
     private var mainContent: some View {

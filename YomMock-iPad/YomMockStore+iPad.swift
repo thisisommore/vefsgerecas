@@ -96,6 +96,7 @@ extension YomMockStore {
     /// Renders the current frame offscreen at 4K class and writes it to a
     /// temporary image ready for the share sheet. Supports transparent background and WebP.
     func exportFrameForSharing(format: FrameExportFormat? = nil, transparentBackground: Bool? = nil) async throws -> URL {
+        guard canExport else { throw YomMockExportError.proRequired }
         let fmt = format ?? pendingFrameFormat
         let transparent = transparentBackground ?? pendingFrameTransparent
         let data = try await renderFrameData(format: fmt, transparentBackground: transparent)
@@ -114,6 +115,7 @@ extension YomMockStore {
     /// Starts a video export to a temporary file; the share sheet is shown
     /// through `lastExportedVideoURL` once it finishes.
     func startVideoExportToTempFile() {
+        guard requireProForExport() else { return }
         let options = pendingVideoOptions
         let base = displayName
         let ext = options.fileExtension
