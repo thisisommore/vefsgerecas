@@ -95,6 +95,29 @@ private struct PackagePurchaseRow: View {
     }
 }
 
+// MARK: - Sheet wrapper
+
+/// `SubscriptionSettingsView` with an explicit Cancel footer for sheet
+/// presentations. macOS sheets don't dismiss on outside clicks, so every
+/// sheet needs its own way out.
+struct ProUpgradeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SubscriptionSettingsView()
+            Divider()
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+    }
+}
+
 // MARK: - Settings pane
 
 /// Full subscription pane: status, paywall entry, per-product purchase,

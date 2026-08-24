@@ -60,8 +60,8 @@ struct ContentView: View {
             FrameExportOptionsView(store: store)
         }
         .sheet(isPresented: $store.showProUpgradePrompt) {
-            SubscriptionSettingsView()
-                .frame(minWidth: 460, minHeight: 420)
+            ProUpgradeSheet()
+                .frame(minWidth: 460, minHeight: 460)
         }
     }
 
