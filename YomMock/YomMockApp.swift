@@ -78,11 +78,39 @@ private struct YomMockWindowRoot: View {
     @State var store = YomMockStore()
     @StateObject private var unsavedGuard = UnsavedChangesGuard()
     @Environment(\.openWindow) private var openWindow
+    @State private var recoveryOffer: RecoveryStore.Pending?
 
     var body: some View {
         ContentView(store: store)
             .environmentObject(unsavedGuard)
             .focusedSceneValue(\.yomMockStore, store)
+            .task {
+                checkForRecoverableSession()
+            }
+            .alert(
+                "Recover Unsaved Session?",
+                isPresented: Binding(
+                    get: { recoveryOffer != nil },
+                    set: { if !$0 { recoveryOffer = nil } }
+                )
+            ) {
+                Button("Recover") {
+                    if let pending = recoveryOffer {
+                        store.restoreRecovery(pending)
+                    }
+                    recoveryOffer = nil
+                }
+                Button("Discard", role: .destructive) {
+                    if let pending = recoveryOffer {
+                        RecoveryStore.remove(id: pending.id)
+                    }
+                    recoveryOffer = nil
+                }
+            } message: {
+                Text(
+                    "YomMock quit unexpectedly with unsaved changes. The last autosave can be restored."
+                )
+            }
             .onAppear {
                 unsavedGuard.onDiscard = { [weak store] in
                     store?.markClean()
@@ -99,7 +127,6 @@ private struct YomMockWindowRoot: View {
             }
             // Install window-close guard
             .background(WindowCloseGuardInstaller(guardObject: unsavedGuard))
-            // Alert for unsaved changes (quit / close)
             .alert("Unsaved Changes", isPresented: $unsavedGuard.showsAlert) {
                 Button("Cancel", role: .cancel) { unsavedGuard.cancel() }
                 Button("Discard", role: .destructive) { unsavedGuard.discard() }
@@ -115,6 +142,12 @@ private struct YomMockWindowRoot: View {
             } message: {
                 Text("You have unsaved changes. Save the project before quitting?")
             }
+    }
+
+    /// Offers the most recent crash-recovery snapshot once per window.
+    private func checkForRecoverableSession() {
+        guard recoveryOffer == nil, !store.isDirty else { return }
+        recoveryOffer = RecoveryStore.pending()
     }
 }
 

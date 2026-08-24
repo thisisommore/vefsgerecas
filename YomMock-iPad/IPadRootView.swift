@@ -42,6 +42,7 @@ struct IPadRootView: View {
     @State private var sharePayload: SharePayload?
     @State private var showFrameExportOptions = false
     @State private var showHelp = false
+    @State private var recoveryOffer: RecoveryStore.Pending?
     @State private var viewportSize: CGSize = .zero
     @State private var viewportScale: CGFloat = 2
 
@@ -105,7 +106,38 @@ struct IPadRootView: View {
             .onAppear {
                 store.previewPointSizeProvider = { [self] in viewportSize }
                 store.previewBackingScaleProvider = { [self] in viewportScale }
+                checkForRecoverableSession()
             }
+            .alert(
+                "Recover Unsaved Session?",
+                isPresented: Binding(
+                    get: { recoveryOffer != nil },
+                    set: { if !$0 { recoveryOffer = nil } }
+                )
+            ) {
+                Button("Recover") {
+                    if let pending = recoveryOffer {
+                        store.restoreRecovery(pending)
+                    }
+                    recoveryOffer = nil
+                }
+                Button("Discard", role: .destructive) {
+                    if let pending = recoveryOffer {
+                        RecoveryStore.remove(id: pending.id)
+                    }
+                    recoveryOffer = nil
+                }
+            } message: {
+                Text(
+                    "YomMock quit unexpectedly with unsaved changes. The last autosave can be restored."
+                )
+            }
+    }
+
+    /// Offers the most recent crash-recovery snapshot once per launch.
+    private func checkForRecoverableSession() {
+        guard recoveryOffer == nil, !store.isDirty else { return }
+        recoveryOffer = RecoveryStore.pending()
     }
 
     // MARK: - Stage + chrome composition

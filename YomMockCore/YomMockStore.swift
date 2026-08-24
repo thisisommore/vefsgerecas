@@ -52,6 +52,9 @@ final class YomMockStore {
     var lastExportedFrameURL: URL?
     var showExportSuccess = false
     @ObservationIgnored private var exportSuccessTask: Task<Void, Never>?
+    /// Identity of this editor session's crash-recovery slot.
+    @ObservationIgnored private(set) var autosaveID = UUID()
+    @ObservationIgnored private var autosaveTask: Task<Void, Never>?
 
     // MARK: - Video export
     var isExportingVideo = false
@@ -294,6 +297,7 @@ final class YomMockStore {
         isDirty = false
         projectError = nil
         clearUndoHistory()
+        clearAutosave()
     }
 
     /// Applies the savable fields of a document to live state. Shared by
@@ -331,6 +335,7 @@ final class YomMockStore {
     func markDirty() {
         guard !isRestoring else { return }
         recordUndoEdit()
+        scheduleAutosave()
         let current = makeDocument()
         if let last = lastSavedSnapshot, current == last {
             isDirty = false
@@ -349,12 +354,76 @@ final class YomMockStore {
     func markDirtyForImageChange() {
         guard !isRestoring else { return }
         recordUndoEdit()
+        scheduleAutosave()
         isDirty = true
     }
 
     func markClean(with document: YomMockProjectDocument? = nil) {
         isDirty = false
         lastSavedSnapshot = document ?? makeDocument()
+        clearAutosave()
+    }
+
+    // MARK: - Autosave (crash recovery)
+
+    /// Debounced crash-recovery snapshot: 4s after the last edit, write the
+    /// session to the recovery slot. Never touches the user's project file.
+    private func scheduleAutosave() {
+        guard isDirty, !timeline.isPlaying else { return }
+        autosaveTask?.cancel()
+        autosaveTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            writeRecoverySnapshotNow()
+        }
+    }
+
+    /// Immediately writes the recovery snapshot (also the test entry point).
+    func writeRecoverySnapshotNow() {
+        guard isDirty, !isRestoring else { return }
+        RecoveryStore.write(
+            id: autosaveID,
+            payload: RecoveryPayload(
+                savedAt: Date(),
+                projectURL: projectURL,
+                displayVideoURL: displayVideo?.url,
+                document: makeDocument()
+            ),
+            displayImage: displayImage
+        )
+    }
+
+    private func clearAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        RecoveryStore.remove(id: autosaveID)
+    }
+
+    /// Restores a recovered session into this (fresh) store: applies the
+    /// edit state, points Save at the original file, and flags the document
+    /// dirty — recovered work is unsaved by definition.
+    func restoreRecovery(_ pending: RecoveryStore.Pending) {
+        isRestoring = true
+        applyDocumentFields(pending.payload.document)
+        isRestoring = false
+
+        displayImage = pending.displayImage
+        displayFileName = pending.payload.document.displayFileName
+        displayVideo = nil
+        projectURL = pending.payload.projectURL
+        markDirtyForImageChange()
+
+        // The recording's temp file often survives the crash — reattach it;
+        // otherwise the poster image restored above remains the display.
+        if let videoURL = pending.payload.displayVideoURL,
+            FileManager.default.fileExists(atPath: videoURL.path)
+        {
+            Task { @MainActor in
+                await setDisplayVideo(at: videoURL)
+            }
+        }
+        // The session now lives in the editor; future edits re-autosave.
+        RecoveryStore.remove(id: pending.id)
     }
 
     // MARK: - New / Open / Save primitives (UI lives in platform extensions)
@@ -381,6 +450,7 @@ final class YomMockStore {
         isDirty = false
         projectError = nil
         clearUndoHistory()
+        clearAutosave()
     }
 
     /// On a device switch, if the timeline is still the untouched default demo
@@ -403,6 +473,8 @@ final class YomMockStore {
             lastSavedSnapshot = saved
             isDirty = false
             projectError = nil
+            // The work is on disk — the crash-recovery slot is stale.
+            clearAutosave()
         } catch {
             projectError = error.localizedDescription
         }
