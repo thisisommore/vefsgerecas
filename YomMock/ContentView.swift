@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var displayAverageColor: NSColor?
     @State private var displayStatus: String?
     @State private var displayLoadTask: Task<Void, Never>?
+    @State private var showHelp = false
     @EnvironmentObject private var unsavedGuard: UnsavedChangesGuard
 
     var body: some View {
@@ -62,6 +63,21 @@ struct ContentView: View {
         .sheet(isPresented: $store.showProUpgradePrompt) {
             ProUpgradeSheet()
                 .frame(minWidth: 460, minHeight: 460)
+        }
+        .sheet(isPresented: $showHelp) {
+            HelpOverlayView(sections: HelpCatalog.mac) {
+                showHelp = false
+            }
+        }
+        // ⌘/ toggles the gestures guide from anywhere in the window.
+        .background {
+            Button("Toggle Gestures Guide") {
+                showHelp.toggle()
+            }
+            .keyboardShortcut("/")
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
         }
     }
 
@@ -201,9 +217,37 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 10)
             }
+
+            helpButton
         }
         .clipped()
         .onDrop(of: [.fileURL, .image], isTargeted: nil, perform: handlePreviewDrop)
+    }
+
+    /// Floating "?" affordance — gestures and shortcuts are otherwise
+    /// undiscoverable.
+    private var helpButton: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                Button {
+                    showHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(.primary.opacity(0.55))
+                        .padding(7)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .shadow(color: .black.opacity(0.14), radius: 5, y: 2)
+                }
+                .buttonStyle(.plain)
+                .help("Gestures & shortcuts (⌘/)")
+                .accessibilityLabel("Open gestures and shortcuts guide")
+            }
+            .padding(10)
+        }
+        .allowsHitTesting(!showHelp)
     }
 
     private var inputCatchers: some View {

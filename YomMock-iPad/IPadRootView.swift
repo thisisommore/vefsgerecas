@@ -41,6 +41,7 @@ struct IPadRootView: View {
     @State private var showProSheet = false
     @State private var sharePayload: SharePayload?
     @State private var showFrameExportOptions = false
+    @State private var showHelp = false
     @State private var viewportSize: CGSize = .zero
     @State private var viewportScale: CGFloat = 2
 
@@ -132,6 +133,12 @@ struct IPadRootView: View {
                     displayStatus: $displayStatus,
                     onPickFromFiles: { showImageImporter = true }
                 )
+                .presentationDetents([.medium, .large])
+            }
+            .sheet(isPresented: $showHelp) {
+                HelpOverlayView(sections: HelpCatalog.iPad) {
+                    showHelp = false
+                }
                 .presentationDetents([.medium, .large])
             }
     }
@@ -262,6 +269,14 @@ struct IPadRootView: View {
                     chromeIcon("photo.on.rectangle.angled")
                 }
                 .buttonStyle(GlassCircleButtonStyle())
+
+                Button {
+                    showHelp = true
+                } label: {
+                    chromeIcon("questionmark.circle")
+                }
+                .buttonStyle(GlassCircleButtonStyle())
+                .accessibilityLabel("Open gestures guide")
 
                 Button {
                     showProSheet = true
