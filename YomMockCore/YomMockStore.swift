@@ -33,6 +33,9 @@ final class YomMockStore {
     var customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
     var background: StudioBackground = .white
     var customBackground = Color.white
+    /// Soft radial highlight in the middle of the backdrop. On by default;
+    /// users can turn it off for a flat background.
+    var backgroundGlow = true
     var camera = StudioCameraSettings()
     var zoom: Float = 1
     var timeline: CameraTimeline = CameraTimeline.demo
@@ -269,6 +272,7 @@ final class YomMockStore {
             customColor: ProjectColor(color: customColor),
             backgroundRaw: background.rawValueForProject,
             customBackground: ProjectColor(color: customBackground),
+            backgroundGlow: backgroundGlow,
             zoom: zoom,
             lidAngle: lidAngle,
             timelineDuration: timeline.duration,
@@ -313,6 +317,7 @@ final class YomMockStore {
         if let pc = doc.customBackground {
             customBackground = pc.color
         }
+        backgroundGlow = doc.backgroundGlow ?? true
         camera = doc.camera ?? .default
         zoom = doc.zoom
 
@@ -437,6 +442,7 @@ final class YomMockStore {
         customColor = Color(red: 0.78, green: 0.32, blue: 0.36)
         background = .white
         customBackground = Color.white
+        backgroundGlow = true
         camera = .default
         zoom = 1
         timeline = CameraTimeline.demo(for: .iPhone)
@@ -621,6 +627,7 @@ final class YomMockStore {
             displayImage: displayCG,
             backgroundTop: top,
             backgroundBottom: bottom,
+            backgroundGlow: backgroundGlow,
             transparentBackground: transparentBackground,
             camera: camera
         )

@@ -126,6 +126,7 @@ struct YomMockProjectDocument: Codable, Equatable {
     var customColor: ProjectColor?
     var backgroundRaw: String // StudioBackground name
     var customBackground: ProjectColor?
+    var backgroundGlow: Bool? // soft radial highlight on the backdrop; nil in older projects = on
     var zoom: Float
     var lidAngle: Float? // current MacBook lid angle; nil in older projects
     var timelineDuration: Double
@@ -146,6 +147,7 @@ struct YomMockProjectDocument: Codable, Equatable {
             && lhs.customColor == rhs.customColor
             && lhs.backgroundRaw == rhs.backgroundRaw
             && lhs.customBackground == rhs.customBackground
+            && lhs.backgroundGlow == rhs.backgroundGlow
             && lhs.zoom == rhs.zoom
             && lhs.lidAngle == rhs.lidAngle
             && lhs.timelineDuration == rhs.timelineDuration

@@ -131,7 +131,7 @@ struct ContentView: View {
 
     private var preview: some View {
         ZStack {
-            StudioBackdrop(background: store.background, customColor: store.customBackground)
+            StudioBackdrop(background: store.background, customColor: store.customBackground, glow: store.backgroundGlow)
             FrameCaptureAnchor { [previewViewBox] view in
                 previewViewBox.view = view
             }
@@ -563,6 +563,7 @@ private struct MacEditorChangeWatchers: ViewModifier {
             }
             .onChange(of: store.background) { _, _ in store.markDirty() }
             .onChange(of: store.customBackground) { _, _ in store.markDirty() }
+            .onChange(of: store.backgroundGlow) { _, _ in store.markDirty() }
             .onChange(of: store.camera) { _, value in
                 applyCameraSettingsToScene(value)
                 store.markDirty()

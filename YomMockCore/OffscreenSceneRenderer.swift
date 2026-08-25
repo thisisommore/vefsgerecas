@@ -86,6 +86,7 @@ final class OffscreenSceneRenderer {
         var displayImage: CGImage?
         var backgroundTop: PlatformColor
         var backgroundBottom: PlatformColor
+        var backgroundGlow: Bool = true
         var transparentBackground: Bool = false
         var camera: StudioCameraSettings = .default
     }
@@ -185,6 +186,7 @@ final class OffscreenSceneRenderer {
         self.gradientImage = inputs.transparentBackground ? CIImage.empty() : Self.makeGradient(
             top: inputs.backgroundTop,
             bottom: inputs.backgroundBottom,
+            glow: inputs.backgroundGlow,
             width: CGFloat(width),
             height: CGFloat(height),
             scale: gradientScale
@@ -299,6 +301,7 @@ final class OffscreenSceneRenderer {
             gradientImage = Self.makeGradient(
                 top: inputs.backgroundTop,
                 bottom: inputs.backgroundBottom,
+                glow: inputs.backgroundGlow,
                 width: outputSize.width,
                 height: outputSize.height,
                 scale: gradientScale
@@ -465,8 +468,9 @@ final class OffscreenSceneRenderer {
     }
 
     /// Recreates the SwiftUI `StudioBackdrop`: a vertical linear gradient with
-    /// a soft radial highlight in the middle — resolution-independent.
-    private static func makeGradient(top: PlatformColor, bottom: PlatformColor, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
+    /// a soft radial highlight in the middle (skippable via `glow`) —
+    /// resolution-independent.
+    private static func makeGradient(top: PlatformColor, bottom: PlatformColor, glow: Bool, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
         let topCI = CIColor(color: top) ?? CIColor(red: 1, green: 1, blue: 1)
         let bottomCI = CIColor(color: bottom) ?? CIColor(red: 0.9, green: 0.9, blue: 0.9)
 
@@ -480,6 +484,10 @@ final class OffscreenSceneRenderer {
                 "inputColor1": bottomCI
             ]
         )?.outputImage ?? CIImage(color: topCI)
+
+        guard glow else {
+            return linear.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
+        }
 
         let highlight = CIFilter(
             name: "CIRadialGradient",

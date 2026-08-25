@@ -177,7 +177,7 @@ struct IPadRootView: View {
 
     private var editorStage: some View {
         ZStack {
-            StudioBackdrop(background: store.background, customColor: store.customBackground)
+            StudioBackdrop(background: store.background, customColor: store.customBackground, glow: store.backgroundGlow)
             previewRealityView
             cameraGestures
             TimelinePlaybackDriver(
@@ -784,6 +784,7 @@ private struct StoreChangeWatchers: ViewModifier {
             }
             .onChange(of: store.background) { _, _ in store.markDirty() }
             .onChange(of: store.customBackground) { _, _ in store.markDirty() }
+            .onChange(of: store.backgroundGlow) { _, _ in store.markDirty() }
             .onChange(of: store.timeline.checkpoints) { _, _ in store.markDirty() }
             .onChange(of: store.timeline.duration) { _, _ in store.markDirty() }
             .onChange(of: photoItem) { _, item in

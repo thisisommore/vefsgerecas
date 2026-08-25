@@ -13,6 +13,8 @@ import SwiftUI
 struct StudioBackdrop: View {
     var background: StudioBackground
     var customColor: Color
+    /// Soft radial highlight in the middle of the backdrop (user-toggleable).
+    var glow: Bool = true
 
     var body: some View {
         let colors = background.gradient(custom: customColor)
@@ -22,12 +24,14 @@ struct StudioBackdrop: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-            RadialGradient(
-                colors: [colors.top.opacity(0.4), .clear],
-                center: .center,
-                startRadius: 0,
-                endRadius: 560
-            )
+            if glow {
+                RadialGradient(
+                    colors: [colors.top.opacity(0.4), .clear],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 560
+                )
+            }
         }
         .ignoresSafeArea()
     }

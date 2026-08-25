@@ -330,6 +330,9 @@ struct IPadInspectorPanel: View {
                 .onChange(of: store.customBackground) { _, _ in
                     store.background = .custom
                 }
+
+            Toggle("Background glow", isOn: $store.backgroundGlow)
+                .font(.system(size: 15, weight: .medium))
         }
     }
 

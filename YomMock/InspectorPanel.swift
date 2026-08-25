@@ -49,7 +49,8 @@ struct InspectorPanel: View {
 
                     BackdropInspectorPanel(
                         background: $store.background,
-                        customBackground: $store.customBackground
+                        customBackground: $store.customBackground,
+                        backgroundGlow: $store.backgroundGlow
                     )
                 }
                 .padding(12)
@@ -214,6 +215,7 @@ private struct PhoneInspectorPanel: View {
 private struct BackdropInspectorPanel: View {
     @Binding var background: StudioBackground
     @Binding var customBackground: Color
+    @Binding var backgroundGlow: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -253,6 +255,13 @@ private struct BackdropInspectorPanel: View {
                         lineWidth: 1)
             }
             .onTapGesture { background = .custom }
+
+            Toggle(isOn: $backgroundGlow) {
+                Text("Background glow")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .toggleStyle(.checkbox)
+            .help("Soft radial highlight in the middle of the backdrop")
         }
     }
 }
