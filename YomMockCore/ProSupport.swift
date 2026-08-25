@@ -11,9 +11,15 @@ import RevenueCat
 
 /// Identifiers mirrored by the RevenueCat project configuration.
 enum ProConstants {
-    /// Test Store key — purchases are simulated, no App Store Connect needed.
-    /// Swap for the production `appl_…` key before release.
-    static let apiKey = "appl_xXQkdkijNjaoMDRWDnQeEJiMBrg"
+    /// Debug builds use the Test Store key — purchases are simulated, no
+    /// App Store Connect needed. Release builds use the production key.
+    static let apiKey: String = {
+        #if DEBUG
+            return "test_AtWicvLnZsCwNvgutrzHtxQhfpb"
+        #else
+            return "appl_xXQkdkijNjaoMDRWDnQeEJiMBrg"
+        #endif
+    }()
     static let entitlementID = "yommock_pro"
 
     static let monthlyProductID = "subscription_monthly_1"
