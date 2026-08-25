@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A15E0B59303DF44C00431233 /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = A15E0B58303DF44C00431233 /* libwebp */; };
+		A15E0B5C303DF45E00431233 /* libwebp in Frameworks */ = {isa = PBXBuildFile; productRef = A15E0B5B303DF45E00431233 /* libwebp */; };
 		A17ECA000000000000000006 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000002 /* RevenueCat */; };
 		A17ECA000000000000000007 /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000003 /* RevenueCatUI */; };
 		A17ECA000000000000000008 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = A17ECA000000000000000004 /* RevenueCat */; };
@@ -70,6 +72,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A15E0B59303DF44C00431233 /* libwebp in Frameworks */,
 				A17ECA000000000000000006 /* RevenueCat in Frameworks */,
 				A17ECA000000000000000007 /* RevenueCatUI in Frameworks */,
 			);
@@ -93,6 +96,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A15E0B5C303DF45E00431233 /* libwebp in Frameworks */,
 				A17ECA000000000000000008 /* RevenueCat in Frameworks */,
 				A17ECA000000000000000009 /* RevenueCatUI in Frameworks */,
 			);
@@ -118,6 +122,7 @@
 				A14959C9302F0E9C00903E35 /* YomMockUITests */,
 				A14959B0302F0E9A00903E35 /* Products */,
 				A130BD713038704800A28933 /* Recovered References */,
+				A15E0B5A303DF45E00431233 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -130,6 +135,13 @@
 				A130BD723038704800A28933 /* YomMock-iPad.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A15E0B5A303DF45E00431233 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -155,6 +167,7 @@
 			packageProductDependencies = (
 				A17ECA000000000000000002 /* RevenueCat */,
 				A17ECA000000000000000003 /* RevenueCatUI */,
+				A15E0B58303DF44C00431233 /* libwebp */,
 			);
 			productName = YomMock;
 			productReference = A14959AF302F0E9A00903E35 /* YomMock.app */;
@@ -226,6 +239,7 @@
 			packageProductDependencies = (
 				A17ECA000000000000000004 /* RevenueCat */,
 				A17ECA000000000000000005 /* RevenueCatUI */,
+				A15E0B5B303DF45E00431233 /* libwebp */,
 			);
 			productName = "YomMock-iPad";
 			productReference = A130BD723038704800A28933 /* YomMock-iPad.app */;
@@ -268,6 +282,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
+				A15E0B57303DF44C00431233 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A14959B0302F0E9A00903E35 /* Products */;
@@ -749,6 +764,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		A15E0B57303DF44C00431233 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SDWebImage/libwebp-Xcode";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.6.0;
+			};
+		};
 		A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
@@ -760,6 +783,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		A15E0B58303DF44C00431233 /* libwebp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A15E0B57303DF44C00431233 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */;
+			productName = libwebp;
+		};
+		A15E0B5B303DF45E00431233 /* libwebp */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A15E0B57303DF44C00431233 /* XCRemoteSwiftPackageReference "libwebp-Xcode" */;
+			productName = libwebp;
+		};
 		A17ECA000000000000000002 /* RevenueCat */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A17ECA000000000000000001 /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;

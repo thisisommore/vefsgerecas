@@ -387,6 +387,7 @@ private struct DisplayInspectorPanel: View {
         NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
             || NSPasteboard.general.canReadItem(withDataConformingToTypes: [
                 UTType.image.identifier, UTType.fileURL.identifier, UTType.png.identifier,
+                UTType.webP.identifier,
             ])
     }
 
@@ -435,8 +436,9 @@ private struct DisplayInspectorPanel: View {
             displayStatus = nil
             return
         }
-        if let data = pb.data(forType: .tiff) ?? pb.data(forType: .png),
-            let image = NSImage(data: data)
+        if let data = pb.data(forType: .tiff) ?? pb.data(forType: .png)
+            ?? pb.data(forType: NSPasteboard.PasteboardType(UTType.webP.identifier)),
+            let image = PlatformImageLoader.image(data: data)
         {
             store.setStaticDisplay(image, fileName: "Pasted image")
             displayStatus = nil

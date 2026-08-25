@@ -252,7 +252,7 @@ struct IPadInspectorPanel: View {
                                 "Paste", systemImage: "doc.on.clipboard",
                                 tint: Color.primary.opacity(0.06))
                         }
-                        .disabled(!UIPasteboard.general.hasImages)
+                        .disabled(!canPasteImage)
                     }
                 }
             } else {
@@ -354,13 +354,28 @@ struct IPadInspectorPanel: View {
             .background(tint, in: Capsule())
     }
 
+    /// Images the pasteboard can hand us directly, plus WebP data copied
+    /// from a browser (which doesn't register under `hasImages`).
+    private var canPasteImage: Bool {
+        UIPasteboard.general.hasImages
+            || UIPasteboard.general.contains(pasteboardTypes: [UTType.webP.identifier])
+    }
+
     private func pasteFromClipboard() {
         if let image = UIPasteboard.general.image {
             store.setStaticDisplay(image, fileName: "Pasted image")
             displayStatus = nil
-        } else {
-            displayStatus = "No image found on clipboard."
+            return
         }
+        // WebP data copied from a browser doesn't bridge to UIImage directly.
+        if let data = UIPasteboard.general.data(forPasteboardType: UTType.webP.identifier),
+            let image = PlatformImageLoader.image(data: data)
+        {
+            store.setStaticDisplay(image, fileName: "Pasted image")
+            displayStatus = nil
+            return
+        }
+        displayStatus = "No image found on clipboard."
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {

@@ -9,6 +9,7 @@
 
 import CoreGraphics
 import Foundation
+import ImageIO
 import SwiftUI
 
 #if canImport(AppKit)
@@ -113,21 +114,36 @@ enum PlatformImageLoader {
     /// Loads a decodable image from a file URL.
     static func image(contentsOf url: URL) -> PlatformImage? {
         #if canImport(AppKit)
-        return NSImage(contentsOf: url)
+        if let image = NSImage(contentsOf: url) { return image }
         #else
         // UIImage(contentsOfFile:) misses scale info for some formats but is
         // fine for display textures (we always work from the CGImage).
-        return UIImage(contentsOfFile: url.path)
+        if let image = UIImage(contentsOfFile: url.path) { return image }
         #endif
+        // ImageIO fallback — natively decodes WebP and other formats the
+        // platform initializers may miss.
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return image(data: data)
     }
 
-    /// Decodes an image from raw data (PNG/JPEG/HEIC...).
+    /// Decodes an image from raw data (PNG/JPEG/HEIC/WebP...).
     static func image(data: Data) -> PlatformImage? {
         #if canImport(AppKit)
-        return NSImage(data: data)
+        if let image = NSImage(data: data) { return image }
         #else
-        return UIImage(data: data)
+        if let image = UIImage(data: data) { return image }
         #endif
+        // ImageIO fallback for formats the platform initializers miss —
+        // notably WebP data coming straight off a browser pasteboard.
+        guard let cgImage = decodeCGImage(from: data) else { return nil }
+        return image(cgImage: cgImage)
+    }
+
+    /// Raw ImageIO decode — handles every ImageIO-supported format (WebP
+    /// included) without relying on NSImage/UIImage type sniffing.
+    private static func decodeCGImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     /// Best-effort CGImage for any platform image.
@@ -151,17 +167,13 @@ enum PlatformImageLoader {
         imageData(from: cgImage, type: "public.png")
     }
 
-    /// WebP-encoded data for a CGImage. Requires macOS 11+ / iOS 14+.
-    /// Falls back to PNG when the WebP destination is unavailable.
+    /// WebP-encoded data for a CGImage, encoded by libwebp (see
+    /// WebPEncoder.swift — Apple's ImageIO only *decodes* WebP).
     static func webPData(from cgImage: CGImage, lossy: Bool = false, quality: Double = 1.0) -> Data? {
-        // Try native WebP via ImageIO; if unavailable, fall back to PNG.
-        if let data = imageData(from: cgImage, type: "org.webmproject.webp", quality: lossy ? quality : nil) {
-            return data
-        }
-        return pngData(from: cgImage)
+        WebPEncoder.encode(cgImage, lossy: lossy, quality: quality)
     }
 
-    /// Generic ImageIO encoder — supports PNG (lossless), WebP, JPEG, HEIC, etc.
+    /// Generic ImageIO encoder — supports PNG (lossless), JPEG, HEIC, etc.
     static func imageData(from cgImage: CGImage, type: String, quality: Double? = nil) -> Data? {
         let out = NSMutableData()
         guard

@@ -671,7 +671,7 @@ final class YomMockStore {
         case .png:
             data = PlatformImageLoader.pngData(from: image)
         case .webp:
-            data = PlatformImageLoader.webPData(from: image) ?? PlatformImageLoader.pngData(from: image)
+            data = PlatformImageLoader.webPData(from: image)
         }
         guard let data else {
             throw YomMockExportError.frameEncodeFailed

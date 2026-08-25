@@ -122,10 +122,7 @@ extension YomMockStore {
         if format == .png {
             panel.allowedContentTypes = [.png]
         } else {
-            panel.allowedContentTypes = [UTType("org.webmproject.webp") ?? .png, .png]
-            if let webp = UTType("org.webmproject.webp") {
-                panel.allowedContentTypes = [webp, .png]
-            }
+            panel.allowedContentTypes = [.webP, .png]
         }
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
