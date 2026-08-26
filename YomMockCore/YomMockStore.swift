@@ -617,7 +617,7 @@ final class YomMockStore {
     /// Snapshot of everything the offscreen renderer needs — safe to keep
     /// editing the project while an export runs.
     func makeSceneInputs(transparentBackground: Bool = false) -> OffscreenSceneRenderer.Inputs {
-        let gradient = background.gradient(custom: customBackground)
+        let gradient = background.gradient(custom: customBackground, glow: backgroundGlow)
         let top = platformColor(gradient.top)
         let bottom = platformColor(gradient.bottom)
         let displayCG = displayImage.flatMap { try? PhoneStyling.sRGBCGImage(from: $0) }

@@ -17,7 +17,7 @@ struct StudioBackdrop: View {
     var glow: Bool = true
 
     var body: some View {
-        let colors = background.gradient(custom: customColor)
+        let colors = background.gradient(custom: customColor, glow: glow)
         return ZStack {
             LinearGradient(
                 colors: [colors.top, colors.bottom],

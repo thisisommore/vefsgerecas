@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import SwiftUI
 import Testing
 @testable import YomMock
 
@@ -57,5 +58,20 @@ struct BackgroundGlowTests {
         #expect(store.makeSceneInputs().backgroundGlow)
         store.backgroundGlow = false
         #expect(!store.makeSceneInputs().backgroundGlow)
+    }
+
+    @Test func glowOffGivesFlatExactSwatchColor() {
+        // Black with glow off must be pure black, not lifted gray.
+        let flat = StudioBackground.black.gradient(custom: .white, glow: false)
+        for color in [flat.top, flat.bottom] {
+            let rgba = platformColor(color).studioRGBA
+            #expect(rgba.red == 0)
+            #expect(rgba.green == 0)
+            #expect(rgba.blue == 0)
+        }
+
+        // Glow on keeps the soft studio lift at the top.
+        let lit = StudioBackground.black.gradient(custom: .white, glow: true)
+        #expect(platformColor(lit.top).studioRGBA.red > 0.05)
     }
 }

@@ -62,7 +62,7 @@ enum StudioBackground: Hashable, Identifiable {
     var swatch: Color {
         switch self {
         case .white: .white
-        case .black: Color(red: 0.04, green: 0.04, blue: 0.05)
+        case .black: Color(red: 0, green: 0, blue: 0)
         case .lightGray: Color(red: 0.90, green: 0.90, blue: 0.91)
         case .cream: Color(red: 0.95, green: 0.93, blue: 0.88)
         case .slate: Color(red: 0.82, green: 0.84, blue: 0.87)
@@ -71,8 +71,9 @@ enum StudioBackground: Hashable, Identifiable {
     }
 
     /// Top and bottom colors of the vertical backdrop gradient for a given
-    /// selection (slightly lighter at the top reads like soft studio light).
-    func gradient(custom: Color) -> (top: Color, bottom: Color) {
+    /// selection. With `glow` the top is slightly lighter (soft studio
+    /// light); without it the backdrop is the flat, exact swatch color.
+    func gradient(custom: Color, glow: Bool = true) -> (top: Color, bottom: Color) {
         let base: Color
         switch self {
         case .custom:
@@ -80,6 +81,7 @@ enum StudioBackground: Hashable, Identifiable {
         default:
             base = swatch
         }
+        guard glow else { return (base, base) }
         let nsBase = platformColor(base)
         let top = nsBase.blended(with: PlatformColor.studioWhite(1), amount: 0.12)
         let bottom = nsBase.blended(with: PlatformColor.studioWhite(0), amount: 0.05)
