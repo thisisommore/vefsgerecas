@@ -11,9 +11,17 @@ import RevenueCat
 
 /// Identifiers mirrored by the RevenueCat project configuration.
 enum ProConstants {
-    /// All builds use the Test Store key — purchases are simulated, no
-    /// App Store Connect needed.
-    static let apiKey = "test_AtWicvLnZsCwNvgutrzHtxQhfpb"
+    #if DEBUG
+        /// Debug builds use the Test Store key — purchases are simulated,
+        /// no App Store Connect or sandbox account needed.
+        static let apiKey = "test_AtWicvLnZsCwNvgutrzHtxQhfpb"
+    #else
+        // TODO: paste the production public SDK key (appl_...) from
+        // RevenueCat Dashboard -> Apps -> YomMock -> API keys.
+        /// Release builds (TestFlight/App Store) must use the production
+        /// key — Test Store keys are rejected by the SDK in release.
+        static let apiKey = "appl_xXQkdkijNjaoMDRWDnQeEJiMBrg"
+    #endif
     static let entitlementID = "yommock_pro"
 
     static let monthlyProductID = "subscription_monthly_1"
