@@ -11,6 +11,18 @@ import RevenueCat
 import RevenueCatUI
 import SwiftUI
 
+// MARK: - Legal links
+
+/// Terms of Use and Privacy Policy, required next to every subscription
+/// purchase control by App Review Guideline 3.1.2.
+enum ProLegal {
+    /// Apple's standard EULA. Replace with your custom EULA URL if you ever
+    /// add one in App Store Connect.
+    static let termsURL = URL(
+        string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    static let privacyURL = URL(string: "https://yommock.yomlabs.xyz/privacy")!
+}
+
 // MARK: - Manage subscription
 
 /// Self-serve subscription management. Customer Center is iOS/iPadOS-only;
@@ -151,6 +163,15 @@ struct SubscriptionSettingsView: View {
                     Label("Restore Purchases", systemImage: "arrow.clockwise")
                 }
                 .disabled(isPurchasing)
+            }
+
+            Section {
+                Link("Terms of Use (EULA)", destination: ProLegal.termsURL)
+                Link("Privacy Policy", destination: ProLegal.privacyURL)
+            } footer: {
+                Text(
+                    "Subscriptions automatically renew unless canceled at least 24 hours before the end of the current period. Payment is charged to your Apple ID account. Manage or cancel anytime in your App Store account settings."
+                )
             }
         }
         .formStyle(.grouped)
