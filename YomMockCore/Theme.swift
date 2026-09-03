@@ -43,6 +43,7 @@ enum StudioBackground: Hashable, Identifiable {
     case cream
     case slate
     case custom
+    case image
 
     static let presets: [StudioBackground] = [.white, .black, .lightGray, .cream, .slate]
 
@@ -56,6 +57,7 @@ enum StudioBackground: Hashable, Identifiable {
         case .cream: "Cream"
         case .slate: "Slate"
         case .custom: "Custom"
+        case .image: "Image"
         }
     }
 
@@ -67,16 +69,19 @@ enum StudioBackground: Hashable, Identifiable {
         case .cream: Color(red: 0.95, green: 0.93, blue: 0.88)
         case .slate: Color(red: 0.82, green: 0.84, blue: 0.87)
         case .custom: .white
+        case .image: .white
         }
     }
 
     /// Top and bottom colors of the vertical backdrop gradient for a given
     /// selection. With `glow` the top is slightly lighter (soft studio
     /// light); without it the backdrop is the flat, exact swatch color.
+    /// `.image` has no gradient — callers render the image instead; the
+    /// gradient here is only a fallback when the image is missing.
     func gradient(custom: Color, glow: Bool = true) -> (top: Color, bottom: Color) {
         let base: Color
         switch self {
-        case .custom:
+        case .custom, .image:
             base = custom
         default:
             base = swatch

@@ -15,25 +15,43 @@ struct StudioBackdrop: View {
     var customColor: Color
     /// Soft radial highlight in the middle of the backdrop (user-toggleable).
     var glow: Bool = true
+    /// Custom backdrop image selected from disk. Shown aspect-fill when
+    /// `background == .image` and non-nil; otherwise the color gradient is used.
+    var backgroundImage: PlatformImage? = nil
 
     var body: some View {
-        let colors = background.gradient(custom: customColor, glow: glow)
-        return ZStack {
-            LinearGradient(
-                colors: [colors.top, colors.bottom],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            if glow {
-                RadialGradient(
-                    colors: [colors.top.opacity(0.4), .clear],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 560
+        ZStack {
+            if background == .image, let backgroundImage {
+                platformImageView(backgroundImage)
+                    .resizable()
+                    .scaledToFill()
+                    .clipped()
+            } else {
+                let colors = background.gradient(custom: customColor, glow: glow)
+                LinearGradient(
+                    colors: [colors.top, colors.bottom],
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
+                if glow {
+                    RadialGradient(
+                        colors: [colors.top.opacity(0.4), .clear],
+                        center: .center,
+                        startRadius: 0,
+                        endRadius: 560
+                    )
+                }
             }
         }
         .ignoresSafeArea()
+    }
+
+    private func platformImageView(_ image: PlatformImage) -> Image {
+        #if canImport(AppKit)
+        Image(nsImage: image)
+        #else
+        Image(uiImage: image)
+        #endif
     }
 }
 

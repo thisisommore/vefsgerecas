@@ -16,7 +16,11 @@ struct IPadInspectorPanel: View {
     var onPickFromFiles: () -> Void
 
     @State private var photoItem: PhotosPickerItem?
+    @State private var backgroundPhotoItem: PhotosPickerItem?
+    @State private var showBackgroundImporter = false
+    @State private var backgroundError: String?
     @State private var isDropTargeted = false
+    @State private var isBackgroundDropTargeted = false
 
     var body: some View {
         ScrollView {
@@ -52,6 +56,36 @@ struct IPadInspectorPanel: View {
                 {
                     store.setStaticDisplay(image, fileName: "Photo Library")
                     displayStatus = nil
+                }
+            }
+        }
+        .onChange(of: backgroundPhotoItem) { _, item in
+            guard let item else { return }
+            Task {
+                defer { backgroundPhotoItem = nil }
+                if let data = try? await item.loadTransferable(type: Data.self),
+                    let image = PlatformImageLoader.image(data: data)
+                {
+                    store.setBackgroundImage(image, fileName: "Photo Library")
+                    backgroundError = nil
+                } else {
+                    backgroundError = "Could not load selected photo."
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showBackgroundImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            if case .success(let urls) = result, let url = urls.first {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                if let image = PlatformImageLoader.image(contentsOf: url) {
+                    store.setBackgroundImage(image, fileName: url.lastPathComponent)
+                    backgroundError = nil
+                } else {
+                    backgroundError = "Could not load image at \(url.lastPathComponent)."
                 }
             }
         }
@@ -331,8 +365,123 @@ struct IPadInspectorPanel: View {
                     store.background = .custom
                 }
 
+            // Custom image backdrop from disk / photo library (aspect-fill cover).
+            VStack(alignment: .leading, spacing: 10) {
+                if let image = store.backgroundImage {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color.primary.opacity(0.05))
+                        Image(platformImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 110)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .padding(8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(
+                                store.background == .image ? Color.accentColor : Color.primary.opacity(0.08),
+                                lineWidth: store.background == .image ? 2 : 1)
+                    }
+                    .onTapGesture {
+                        store.background = .image
+                    }
+                    .onDrop(of: [.fileURL, .image], isTargeted: $isBackgroundDropTargeted, perform: handleBackgroundDrop)
+                    .overlay(alignment: .topTrailing) {
+                        Button(role: .destructive) {
+                            store.removeBackgroundImage()
+                            backgroundError = nil
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 28, height: 28)
+                                .background(.regularMaterial, in: Circle())
+                        }
+                        .padding(10)
+                        .accessibilityLabel("Remove backdrop image")
+                    }
+
+                    Text(store.backgroundImageName ?? "Custom image")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    HStack(spacing: 8) {
+                        PhotosPicker(selection: $backgroundPhotoItem, matching: .images) {
+                            actionCapsule(
+                                "Change", systemImage: "photo",
+                                tint: Color.accentColor.opacity(0.14))
+                        }
+
+                        Button {
+                            showBackgroundImporter = true
+                        } label: {
+                            actionCapsule(
+                                "Files", systemImage: "folder",
+                                tint: Color.primary.opacity(0.06))
+                        }
+
+                        Button {
+                            pasteBackgroundFromClipboard()
+                        } label: {
+                            actionCapsule(
+                                "Paste", systemImage: "doc.on.clipboard",
+                                tint: Color.primary.opacity(0.06))
+                        }
+                        .disabled(!canPasteImage)
+                    }
+                } else {
+                    PhotosPicker(selection: $backgroundPhotoItem, matching: .images) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 26))
+                                .foregroundStyle(.secondary)
+                            Text("Choose Backdrop Image")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("Photos or Files · fills the backdrop")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color.primary.opacity(0.04))
+                        )
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14)
+                                .strokeBorder(
+                                    isBackgroundDropTargeted ? Color.accentColor : Color.primary.opacity(0.14),
+                                    style: StrokeStyle(lineWidth: 1, dash: [6, 5])
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .onDrop(of: [.fileURL, .image], isTargeted: $isBackgroundDropTargeted, perform: handleBackgroundDrop)
+
+                    Button {
+                        showBackgroundImporter = true
+                    } label: {
+                        actionCapsule("Browse Files…", systemImage: "folder", tint: Color.primary.opacity(0.06))
+                    }
+                }
+
+                if let backgroundError {
+                    Text(backgroundError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             Toggle("Background glow", isOn: $store.backgroundGlow)
                 .font(.system(size: 15, weight: .medium))
+                .disabled(store.background == .image)
+                .help(store.background == .image ? "Glow applies to color backdrops only" : "Soft radial highlight in the middle of the backdrop")
         }
     }
 
@@ -379,6 +528,64 @@ struct IPadInspectorPanel: View {
             return
         }
         displayStatus = "No image found on clipboard."
+    }
+
+    private func pasteBackgroundFromClipboard() {
+        if let image = UIPasteboard.general.image {
+            store.setBackgroundImage(image, fileName: "Pasted image")
+            backgroundError = nil
+            return
+        }
+        if let data = UIPasteboard.general.data(forPasteboardType: UTType.webP.identifier),
+            let image = PlatformImageLoader.image(data: data)
+        {
+            store.setBackgroundImage(image, fileName: "Pasted image")
+            backgroundError = nil
+            return
+        }
+        backgroundError = "No image found on clipboard."
+    }
+
+    private func handleBackgroundDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let string = item as? String {
+                    url = URL(string: string)
+                } else if let itemURL = item as? URL {
+                    url = itemURL
+                }
+                guard let url else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                Task { @MainActor in
+                    if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setBackgroundImage(image, fileName: url.lastPathComponent)
+                        backgroundError = nil
+                    } else {
+                        backgroundError = "Could not load dropped file."
+                    }
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                guard let image = object as? UIImage else {
+                    Task { @MainActor in backgroundError = "Could not load dropped image." }
+                    return
+                }
+                Task { @MainActor in
+                    store.setBackgroundImage(image, fileName: "Dropped image")
+                    backgroundError = nil
+                }
+            }
+            return true
+        }
+        return false
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {

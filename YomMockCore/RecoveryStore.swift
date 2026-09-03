@@ -53,7 +53,8 @@ enum RecoveryStore {
     /// Writes a recovery snapshot for the given session slot. Best-effort by
     /// design — callers swallow failures; autosave must never interrupt work.
     static func write(
-        id: UUID, payload: RecoveryPayload, displayImage: PlatformImage?
+        id: UUID, payload: RecoveryPayload, displayImage: PlatformImage?,
+        backgroundImage: PlatformImage? = nil
     ) {
         let fm = FileManager.default
         let slot = slotURL(id)
@@ -76,6 +77,17 @@ enum RecoveryStore {
             } else {
                 try? fm.removeItem(at: assets.appendingPathComponent(YomMockProject.displayFileName))
             }
+
+            if let backgroundImage,
+                let cg = PlatformImageLoader.cgImage(from: backgroundImage),
+                let png = PlatformImageLoader.pngData(from: cg)
+            {
+                try png.write(
+                    to: assets.appendingPathComponent(YomMockProject.backgroundFileName),
+                    options: .atomic)
+            } else {
+                try? fm.removeItem(at: assets.appendingPathComponent(YomMockProject.backgroundFileName))
+            }
         } catch {
             // Best effort — drop a half-written slot so it never restores.
             try? fm.removeItem(at: slot)
@@ -86,6 +98,7 @@ enum RecoveryStore {
         let id: UUID
         let payload: RecoveryPayload
         let displayImage: PlatformImage?
+        let backgroundImage: PlatformImage?
     }
 
     /// The most recent recoverable session, if any.
@@ -128,7 +141,13 @@ enum RecoveryStore {
         let displayImage = fm.fileExists(atPath: displayURL.path)
             ? PlatformImageLoader.image(contentsOf: displayURL)
             : nil
-        return Pending(id: id, payload: payload, displayImage: displayImage)
+        let backgroundURL = slot
+            .appendingPathComponent(YomMockProject.assetsDirectoryName, isDirectory: true)
+            .appendingPathComponent(YomMockProject.backgroundFileName)
+        let backgroundImage = fm.fileExists(atPath: backgroundURL.path)
+            ? PlatformImageLoader.image(contentsOf: backgroundURL)
+            : nil
+        return Pending(id: id, payload: payload, displayImage: displayImage, backgroundImage: backgroundImage)
     }
 
     /// Deletes the slot once the session is saved, discarded or restored.

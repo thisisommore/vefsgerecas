@@ -48,9 +48,7 @@ struct InspectorPanel: View {
                     Divider()
 
                     BackdropInspectorPanel(
-                        background: $store.background,
-                        customBackground: $store.customBackground,
-                        backgroundGlow: $store.backgroundGlow
+                        store: store
                     )
                 }
                 .padding(12)
@@ -213,9 +211,8 @@ private struct PhoneInspectorPanel: View {
 }
 
 private struct BackdropInspectorPanel: View {
-    @Binding var background: StudioBackground
-    @Binding var customBackground: Color
-    @Binding var backgroundGlow: Bool
+    @Bindable var store: YomMockStore
+    @State private var backgroundError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -225,18 +222,19 @@ private struct BackdropInspectorPanel: View {
                 ForEach(StudioBackground.presets) { color in
                     BackdropCircle(
                         color: color,
-                        isSelected: background == color
+                        isSelected: store.background == color
                     ) {
-                        background = color
+                        store.background = color
+                        store.markDirty()
                     }
                 }
             }
 
             HStack(spacing: 16) {
-                ColorPicker("Custom", selection: $customBackground, supportsOpacity: false)
+                ColorPicker("Custom", selection: $store.customBackground, supportsOpacity: false)
                     .labelsHidden()
-                    .onChange(of: customBackground) { _, _ in
-                        background = .custom
+                    .onChange(of: store.customBackground) { _, _ in
+                        store.background = .custom
                     }
             }
             .padding(.horizontal, 8)
@@ -244,25 +242,157 @@ private struct BackdropInspectorPanel: View {
             .background {
                 Capsule()
                     .fill(
-                        background == .custom
+                        store.background == .custom
                             ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04))
             }
             .overlay {
                 Capsule()
                     .strokeBorder(
-                        background == .custom
+                        store.background == .custom
                             ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.06),
                         lineWidth: 1)
             }
-            .onTapGesture { background = .custom }
+            .onTapGesture { store.background = .custom }
 
-            Toggle(isOn: $backgroundGlow) {
+            // Custom image backdrop selected from disk (aspect-fill cover).
+            VStack(alignment: .leading, spacing: 8) {
+                if let image = store.backgroundImage {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.primary.opacity(0.04))
+                        Image(nsImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .padding(6)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(
+                                store.background == .image
+                                    ? Color.accentColor.opacity(0.8) : Color.primary.opacity(0.08),
+                                lineWidth: store.background == .image ? 2 : 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                    .onTapGesture {
+                        store.background = .image
+                        store.markDirty()
+                    }
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil, perform: handleDrop)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text(store.backgroundImageName ?? "Custom image")
+                            .font(.system(size: 10, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer()
+                    }
+
+                    HStack(spacing: 6) {
+                        Button("Choose…", action: chooseImage)
+                            .buttonStyle(TimelineTextButtonStyle())
+                        Button("Remove", role: .destructive, action: {
+                            store.removeBackgroundImage()
+                            backgroundError = nil
+                        })
+                        .buttonStyle(TimelineTextButtonStyle())
+                        Spacer()
+                    }
+                } else {
+                    Button(action: chooseImage) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.on.rectangle.angled")
+                                .font(.system(size: 12))
+                            Text("Choose image…")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(TimelineTextButtonStyle())
+                    .help("Select an image from disk as the backdrop")
+                    .onDrop(of: [.fileURL, .image], isTargeted: nil, perform: handleDrop)
+                }
+
+                if let backgroundError {
+                    Text(backgroundError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Toggle(isOn: $store.backgroundGlow) {
                 Text("Background glow")
                     .font(.system(size: 11, weight: .medium))
             }
             .toggleStyle(.checkbox)
-            .help("Soft radial highlight in the middle of the backdrop")
+            .help("Soft radial highlight in the middle of the backdrop (color backdrops only)")
+            .disabled(store.background == .image)
         }
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .heif, .tiff, .bmp, .gif, .webP]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.message = "Choose an image for the backdrop"
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK, let url = panel.url {
+            if let image = PlatformImageLoader.image(contentsOf: url) {
+                store.setBackgroundImage(image, fileName: url.lastPathComponent)
+                backgroundError = nil
+            } else {
+                backgroundError = "Could not load image at \(url.lastPathComponent)."
+            }
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first else { return false }
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                var url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let str = item as? String {
+                    url = URL(string: str)
+                } else if let u = item as? URL {
+                    url = u
+                }
+                guard let url else { return }
+                Task { @MainActor in
+                    if let image = PlatformImageLoader.image(contentsOf: url) {
+                        store.setBackgroundImage(image, fileName: url.lastPathComponent)
+                        backgroundError = nil
+                    } else {
+                        backgroundError = "Could not load dropped file."
+                    }
+                }
+            }
+            return true
+        }
+        if provider.canLoadObject(ofClass: NSImage.self) {
+            provider.loadObject(ofClass: NSImage.self) { object, _ in
+                guard let image = object as? NSImage else {
+                    Task { @MainActor in backgroundError = "Could not load dropped image." }
+                    return
+                }
+                Task { @MainActor in
+                    store.setBackgroundImage(image, fileName: "Dropped image")
+                    backgroundError = nil
+                }
+            }
+            return true
+        }
+        return false
     }
 }
 

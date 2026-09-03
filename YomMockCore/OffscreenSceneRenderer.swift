@@ -87,6 +87,8 @@ final class OffscreenSceneRenderer {
         var backgroundTop: PlatformColor
         var backgroundBottom: PlatformColor
         var backgroundGlow: Bool = true
+        /// Custom backdrop image (aspect-fill cover). Nil = gradient backdrop.
+        var backgroundImage: CGImage?
         var transparentBackground: Bool = false
         var camera: StudioCameraSettings = .default
     }
@@ -110,6 +112,7 @@ final class OffscreenSceneRenderer {
     private var displayTexture: TextureResource?
     private var displayAverageColor: PlatformColor?
     private var lastDisplayImage: CGImage?
+    private var lastBackgroundImage: CGImage?
     private var currentFinish: PhoneFinish?
     private var lastAppliedGlow: Float = 0
     private var lastAppliedColor: PlatformColor?
@@ -183,10 +186,12 @@ final class OffscreenSceneRenderer {
         self.eventListener = MTLSharedEventListener(dispatchQueue: DispatchQueue(label: "yommock.render.events"))
         self.gradientScale = gradientScale
         self.isTransparentBackground = inputs.transparentBackground
-        self.gradientImage = inputs.transparentBackground ? CIImage.empty() : Self.makeGradient(
+        self.lastBackgroundImage = inputs.backgroundImage
+        self.gradientImage = Self.makeBackdrop(
             top: inputs.backgroundTop,
             bottom: inputs.backgroundBottom,
             glow: inputs.backgroundGlow,
+            backgroundImage: inputs.backgroundImage,
             width: CGFloat(width),
             height: CGFloat(height),
             scale: gradientScale
@@ -295,8 +300,21 @@ final class OffscreenSceneRenderer {
         lidRig?.displayOn = displayTexture != nil
         currentFinish = inputs.finish
         isTransparentBackground = inputs.transparentBackground
+        if inputs.backgroundImage !== lastBackgroundImage {
+            lastBackgroundImage = inputs.backgroundImage
+        }
         if inputs.transparentBackground {
             gradientImage = CIImage.empty()
+        } else if let bg = inputs.backgroundImage {
+            gradientImage = Self.makeBackdrop(
+                top: inputs.backgroundTop,
+                bottom: inputs.backgroundBottom,
+                glow: inputs.backgroundGlow,
+                backgroundImage: bg,
+                width: outputSize.width,
+                height: outputSize.height,
+                scale: gradientScale
+            )
         } else {
             gradientImage = Self.makeGradient(
                 top: inputs.backgroundTop,
@@ -470,6 +488,32 @@ final class OffscreenSceneRenderer {
     /// Recreates the SwiftUI `StudioBackdrop`: a vertical linear gradient with
     /// a soft radial highlight in the middle (skippable via `glow`) —
     /// resolution-independent.
+    private static func makeBackdrop(top: PlatformColor, bottom: PlatformColor, glow: Bool, backgroundImage: CGImage?, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
+        if let backgroundImage {
+            return makeBackgroundCover(image: backgroundImage, width: width, height: height)
+        }
+        return makeGradient(top: top, bottom: bottom, glow: glow, width: width, height: height, scale: scale)
+    }
+
+    /// Scales a custom backdrop image to cover the output (aspect-fill, center
+    /// crop) so exports match the SwiftUI `.scaledToFill` preview exactly.
+    private static func makeBackgroundCover(image: CGImage, width: CGFloat, height: CGFloat) -> CIImage {
+        let iw = CGFloat(image.width)
+        let ih = CGFloat(image.height)
+        guard iw > 0, ih > 0, width > 0, height > 0 else {
+            return CIImage(cgImage: image).cropped(to: CGRect(x: 0, y: 0, width: max(width, 1), height: max(height, 1)))
+        }
+        var ci = CIImage(cgImage: image)
+        // CoreImage origin is bottom-left; crop rect math below uses that space.
+        let scale = max(width / iw, height / ih)
+        ci = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let scaledW = iw * scale
+        let scaledH = ih * scale
+        let originX = (scaledW - width) / 2
+        let originY = (scaledH - height) / 2
+        return ci.cropped(to: CGRect(x: originX, y: originY, width: width, height: height))
+    }
+
     private static func makeGradient(top: PlatformColor, bottom: PlatformColor, glow: Bool, width: CGFloat, height: CGFloat, scale: CGFloat) -> CIImage {
         let topCI = CIColor(color: top) ?? CIColor(red: 1, green: 1, blue: 1)
         let bottomCI = CIColor(color: bottom) ?? CIColor(red: 0.9, green: 0.9, blue: 0.9)

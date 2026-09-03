@@ -127,6 +127,8 @@ struct YomMockProjectDocument: Codable, Equatable {
     var backgroundRaw: String // StudioBackground name
     var customBackground: ProjectColor?
     var backgroundGlow: Bool? // soft radial highlight on the backdrop; nil in older projects = on
+    var backgroundImageRelativePath: String? // e.g. "assets/background.png"; nil = color backdrop
+    var backgroundImageName: String?
     var zoom: Float
     var lidAngle: Float? // current MacBook lid angle; nil in older projects
     var timelineDuration: Double
@@ -148,6 +150,8 @@ struct YomMockProjectDocument: Codable, Equatable {
             && lhs.backgroundRaw == rhs.backgroundRaw
             && lhs.customBackground == rhs.customBackground
             && lhs.backgroundGlow == rhs.backgroundGlow
+            && lhs.backgroundImageRelativePath == rhs.backgroundImageRelativePath
+            && lhs.backgroundImageName == rhs.backgroundImageName
             && lhs.zoom == rhs.zoom
             && lhs.lidAngle == rhs.lidAngle
             && lhs.timelineDuration == rhs.timelineDuration
@@ -166,11 +170,14 @@ enum YomMockProject {
     static let documentFileName = "project.json"
     static let assetsDirectoryName = "assets"
     static let displayFileName = "display.png"
+    static let backgroundFileName = "background.png"
 
     struct Loaded {
         let projectURL: URL
         let document: YomMockProjectDocument
         let displayImage: PlatformImage?
+        /// Custom backdrop image selected from disk (nil = color backdrop).
+        let backgroundImage: PlatformImage?
         /// Resolved video file inside the package when the project uses a
         /// screen recording as its display content.
         let displayVideoURL: URL?
@@ -206,6 +213,13 @@ enum YomMockProject {
                 image = PlatformImageLoader.image(contentsOf: fallback)
             }
         }
+        var backgroundImage: PlatformImage?
+        if let rel = document.backgroundImageRelativePath {
+            let url = projectURL.appendingPathComponent(rel)
+            if FileManager.default.fileExists(atPath: url.path) {
+                backgroundImage = PlatformImageLoader.image(contentsOf: url)
+            }
+        }
         var videoURL: URL?
         if let rel = document.displayVideoRelativePath {
             let url = projectURL.appendingPathComponent(rel)
@@ -215,7 +229,7 @@ enum YomMockProject {
         }
         return Loaded(
             projectURL: projectURL, document: document,
-            displayImage: image, displayVideoURL: videoURL)
+            displayImage: image, backgroundImage: backgroundImage, displayVideoURL: videoURL)
     }
 
     /// Writes a self-contained project package at `projectURL`.
@@ -224,7 +238,8 @@ enum YomMockProject {
         to projectURL: URL,
         document: YomMockProjectDocument,
         displayImage: PlatformImage?,
-        displayVideoSourceURL: URL? = nil
+        displayVideoSourceURL: URL? = nil,
+        backgroundImage: PlatformImage? = nil
     ) throws -> YomMockProjectDocument {
         let fm = FileManager.default
         let tempURL = fm.temporaryDirectory
@@ -246,6 +261,16 @@ enum YomMockProject {
                 saved.displayRelativePath = "\(assetsDirectoryName)/\(displayFileName)"
             } else {
                 saved.displayRelativePath = nil
+            }
+
+            if let backgroundImage,
+               let cg = PlatformImageLoader.cgImage(from: backgroundImage),
+               let png = PlatformImageLoader.pngData(from: cg) {
+                let dest = assetsDir.appendingPathComponent(backgroundFileName)
+                try png.write(to: dest)
+                saved.backgroundImageRelativePath = "\(assetsDirectoryName)/\(backgroundFileName)"
+            } else {
+                saved.backgroundImageRelativePath = nil
             }
 
             // Copy the screen recording into the package so projects stay
@@ -328,6 +353,7 @@ extension StudioBackground {
         case .cream: "cream"
         case .slate: "slate"
         case .custom: "custom"
+        case .image: "image"
         }
     }
 
@@ -338,6 +364,7 @@ extension StudioBackground {
         case "lightGray": return .lightGray
         case "cream": return .cream
         case "slate": return .slate
+        case "image": return .image
         default: return .custom
         }
     }

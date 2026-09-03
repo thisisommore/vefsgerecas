@@ -20,6 +20,8 @@ private struct EditorSnapshot: Equatable {
     var displayImage: PlatformImage?
     var displayFileName: String?
     var displayVideoURL: URL?
+    var backgroundImage: PlatformImage?
+    var backgroundImageName: String?
 }
 
 @MainActor
@@ -36,6 +38,10 @@ final class YomMockStore {
     /// Soft radial highlight in the middle of the backdrop. On by default;
     /// users can turn it off for a flat background.
     var backgroundGlow = true
+    /// Custom backdrop image selected from disk (nil = color backdrop).
+    /// Active when `background == .image`.
+    var backgroundImage: PlatformImage?
+    var backgroundImageName: String?
     var camera = StudioCameraSettings()
     var zoom: Float = 1
     var timeline: CameraTimeline = CameraTimeline.demo
@@ -217,7 +223,9 @@ final class YomMockStore {
             document: makeDocument(),
             displayImage: displayImage,
             displayFileName: displayFileName,
-            displayVideoURL: displayVideo?.url
+            displayVideoURL: displayVideo?.url,
+            backgroundImage: backgroundImage,
+            backgroundImageName: backgroundImageName
         )
     }
 
@@ -231,6 +239,8 @@ final class YomMockStore {
 
         displayImage = snapshot.displayImage
         displayFileName = snapshot.displayFileName
+        backgroundImage = snapshot.backgroundImage
+        backgroundImageName = snapshot.backgroundImageName
         if let video = displayVideo, video.url == snapshot.displayVideoURL {
             // Same recording — keep the live player, re-park on the playhead.
             video.scrub(to: min(timeline.currentTime, video.duration))
@@ -273,6 +283,8 @@ final class YomMockStore {
             backgroundRaw: background.rawValueForProject,
             customBackground: ProjectColor(color: customBackground),
             backgroundGlow: backgroundGlow,
+            backgroundImageRelativePath: backgroundImage == nil ? nil : "assets/\(YomMockProject.backgroundFileName)",
+            backgroundImageName: backgroundImageName,
             zoom: zoom,
             lidAngle: lidAngle,
             timelineDuration: timeline.duration,
@@ -286,7 +298,7 @@ final class YomMockStore {
         return doc
     }
 
-    func applyDocument(_ doc: YomMockProjectDocument, displayImage: PlatformImage?) {
+    func applyDocument(_ doc: YomMockProjectDocument, displayImage: PlatformImage?, backgroundImage: PlatformImage? = nil) {
         isRestoring = true
         defer { isRestoring = false }
 
@@ -294,6 +306,8 @@ final class YomMockStore {
 
         self.displayImage = displayImage
         self.displayFileName = doc.displayFileName
+        self.backgroundImage = backgroundImage
+        self.backgroundImageName = doc.backgroundImageName
         // The looping player is restored asynchronously by openProject.
         displayVideo = nil
 
@@ -318,6 +332,14 @@ final class YomMockStore {
             customBackground = pc.color
         }
         backgroundGlow = doc.backgroundGlow ?? true
+        // Fall back to a color backdrop when the doc requests an image we
+        // don't have (e.g. missing asset) — avoids a blank backdrop.
+        if background == .image, doc.backgroundImageRelativePath == nil {
+            // Keep .image only when the caller supplies pixels (undo path
+            // sets backgroundImage separately); otherwise the preview falls
+            // back to customBackground via gradient.
+        }
+        backgroundImageName = doc.backgroundImageName
         camera = doc.camera ?? .default
         zoom = doc.zoom
 
@@ -363,6 +385,14 @@ final class YomMockStore {
         isDirty = true
     }
 
+    /// For backdrop image changes where document equality can't detect pixels, force dirty.
+    func markDirtyForBackgroundImageChange() {
+        guard !isRestoring else { return }
+        recordUndoEdit()
+        scheduleAutosave()
+        isDirty = true
+    }
+
     func markClean(with document: YomMockProjectDocument? = nil) {
         isDirty = false
         lastSavedSnapshot = document ?? makeDocument()
@@ -394,7 +424,8 @@ final class YomMockStore {
                 displayVideoURL: displayVideo?.url,
                 document: makeDocument()
             ),
-            displayImage: displayImage
+            displayImage: displayImage,
+            backgroundImage: backgroundImage
         )
     }
 
@@ -414,6 +445,8 @@ final class YomMockStore {
 
         displayImage = pending.displayImage
         displayFileName = pending.payload.document.displayFileName
+        backgroundImage = pending.backgroundImage
+        backgroundImageName = pending.payload.document.backgroundImageName
         displayVideo = nil
         projectURL = pending.payload.projectURL
         markDirtyForImageChange()
@@ -443,6 +476,8 @@ final class YomMockStore {
         background = .white
         customBackground = Color.white
         backgroundGlow = true
+        backgroundImage = nil
+        backgroundImageName = nil
         camera = .default
         zoom = 1
         timeline = CameraTimeline.demo(for: .iPhone)
@@ -474,7 +509,8 @@ final class YomMockStore {
             let doc = makeDocument()
             let saved = try YomMockProject.save(
                 to: url, document: doc, displayImage: displayImage,
-                displayVideoSourceURL: displayVideo?.url)
+                displayVideoSourceURL: displayVideo?.url,
+                backgroundImage: backgroundImage)
             projectURL = url
             lastSavedSnapshot = saved
             isDirty = false
@@ -490,7 +526,7 @@ final class YomMockStore {
         do {
             let loaded = try YomMockProject.load(from: url)
             projectURL = url
-            applyDocument(loaded.document, displayImage: loaded.displayImage)
+            applyDocument(loaded.document, displayImage: loaded.displayImage, backgroundImage: loaded.backgroundImage)
             projectError = nil
             if let videoURL = loaded.displayVideoURL {
                 let expectedFileName = loaded.document.displayFileName
@@ -512,6 +548,27 @@ final class YomMockStore {
         displayVideo = nil
         displayImage = image
         displayFileName = fileName
+    }
+
+    // MARK: - Backdrop image (custom background)
+
+    /// Sets a custom backdrop image selected from disk, switching the
+    /// backdrop to `.image`. All UI entry points go through this so undo,
+    /// autosave and dirty tracking stay consistent.
+    func setBackgroundImage(_ image: PlatformImage?, fileName: String?) {
+        backgroundImage = image
+        backgroundImageName = fileName
+        if image != nil {
+            background = .image
+        } else if background == .image {
+            background = .custom
+        }
+        markDirtyForBackgroundImageChange()
+    }
+
+    /// Clears the custom backdrop image, falling back to the custom color.
+    func removeBackgroundImage() {
+        setBackgroundImage(nil, fileName: nil)
     }
 
     /// Loads a dropped/chosen screen recording as the display content:
@@ -621,6 +678,10 @@ final class YomMockStore {
         let top = platformColor(gradient.top)
         let bottom = platformColor(gradient.bottom)
         let displayCG = displayImage.flatMap { try? PhoneStyling.sRGBCGImage(from: $0) }
+        let backgroundCG: CGImage? = {
+            guard background == .image, let img = backgroundImage else { return nil }
+            return try? PhoneStyling.sRGBCGImage(from: img)
+        }()
         return OffscreenSceneRenderer.Inputs(
             device: device,
             finish: selectedColor.finish(custom: customColor),
@@ -628,6 +689,7 @@ final class YomMockStore {
             backgroundTop: top,
             backgroundBottom: bottom,
             backgroundGlow: backgroundGlow,
+            backgroundImage: backgroundCG,
             transparentBackground: transparentBackground,
             camera: camera
         )
