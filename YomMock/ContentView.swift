@@ -69,15 +69,10 @@ struct ContentView: View {
                 showHelp = false
             }
         }
-        // ⌘/ toggles the gestures guide from anywhere in the window.
-        .background {
-            Button("Toggle Gestures Guide") {
-                showHelp.toggle()
-            }
-            .keyboardShortcut("/")
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
+        // ⌘/ toggles the gestures guide; exposed as a real Help-menu command
+        // (see YomMockApp.commands) instead of a hidden shortcut-only button.
+        .focusedSceneValue(\.toggleGesturesGuide) {
+            showHelp.toggle()
         }
     }
 

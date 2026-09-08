@@ -28,15 +28,6 @@ struct IPadTimelineBar: View {
         .padding(.bottom, 12)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: timeline.isPlaying)
-        .background(
-            // Hardware keyboard: spacebar toggles play/pause.
-            Button(action: timeline.togglePlay) { EmptyView() }
-                .keyboardShortcut(.space, modifiers: [])
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .disabled(timeline.checkpoints.count < 2 && !timeline.isPlaying)
-        )
     }
 
     // MARK: - Controls row
@@ -61,6 +52,8 @@ struct IPadTimelineBar: View {
                     .contentShape(Circle())
             }
             .disabled(timeline.checkpoints.count < 2 && !timeline.isPlaying)
+            // Hardware keyboard: spacebar toggles play/pause.
+            .keyboardShortcut(.space, modifiers: [])
 
             timeReadout
 

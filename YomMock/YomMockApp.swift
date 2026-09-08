@@ -13,10 +13,19 @@ private struct YomMockStoreFocusedKey: FocusedValueKey {
     typealias Value = YomMockStore
 }
 
+private struct ToggleGesturesGuideFocusedKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 extension FocusedValues {
     var yomMockStore: YomMockStore? {
         get { self[YomMockStoreFocusedKey.self] }
         set { self[YomMockStoreFocusedKey.self] = newValue }
+    }
+
+    var toggleGesturesGuide: (() -> Void)? {
+        get { self[ToggleGesturesGuideFocusedKey.self] }
+        set { self[ToggleGesturesGuideFocusedKey.self] = newValue }
     }
 }
 
@@ -155,6 +164,7 @@ private struct YomMockWindowRoot: View {
 struct YomMockApp: App {
     @NSApplicationDelegateAdaptor(YomMockAppDelegate.self) private var appDelegate
     @FocusedValue(\.yomMockStore) private var focusedStore
+    @FocusedValue(\.toggleGesturesGuide) private var toggleGesturesGuide
     @Environment(\.openWindow) private var openWindow
     @State private var subscriptions = SubscriptionManager.shared
 
@@ -242,6 +252,14 @@ struct YomMockApp: App {
                 Button("YomMock Pro…") {
                     openWindow(id: "yommock-pro")
                 }
+            }
+
+            CommandGroup(after: .help) {
+                Button("Gestures & Shortcuts") {
+                    toggleGesturesGuide?()
+                }
+                .keyboardShortcut("/")
+                .disabled(toggleGesturesGuide == nil)
             }
         }
 

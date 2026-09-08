@@ -1,0 +1,10 @@
+{
+  "mcp": {
+    "servers": {
+      "meta-ads": {
+        "type": "remote",
+        "url": "https://mcp.facebook.com/ads"
+      }
+    }
+  }
+}

@@ -2,13 +2,12 @@
 //  ProViews.swift
 //  YomMockCore
 //
-//  Shared SwiftUI surfaces for YomMock Pro: the RevenueCat paywall, the
-//  Customer Center (iPadOS), entitlement status and a manual package list.
-//  Purchase/restore logic lives in ProSupport.swift (SubscriptionManager).
+//  Shared SwiftUI surfaces for YomMock Pro: entitlement status and the
+//  local purchase/restore UI. Purchase logic lives in
+//  ProSupport.swift (SubscriptionManager).
 //
 
 import RevenueCat
-import RevenueCatUI
 import SwiftUI
 
 // MARK: - Legal links
@@ -21,39 +20,6 @@ enum ProLegal {
     static let termsURL = URL(
         string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
     static let privacyURL = URL(string: "https://yommock.yomlabs.xyz/privacy")!
-}
-
-// MARK: - Manage subscription
-
-/// Self-serve subscription management. Customer Center is iOS/iPadOS-only;
-/// on macOS we hand off to the App Store subscription page.
-struct ManageSubscriptionButton: View {
-    @Environment(\.openURL) private var openURL
-    #if os(iOS)
-        @State private var showCustomerCenter = false
-    #endif
-
-    var body: some View {
-        Button {
-            #if os(iOS)
-                showCustomerCenter = true
-            #else
-                openURL(Self.manageSubscriptionsURL)
-            #endif
-        } label: {
-            Label("Manage Subscription", systemImage: "person.crop.circle")
-        }
-        #if os(iOS)
-            .sheet(isPresented: $showCustomerCenter) {
-                CustomerCenterView()
-            }
-        #endif
-    }
-
-    #if os(macOS)
-        private static let manageSubscriptionsURL = URL(
-            string: "https://apps.apple.com/account/subscriptions")!
-    #endif
 }
 
 // MARK: - Status
@@ -83,9 +49,8 @@ struct ProStatusSection: View {
 
 // MARK: - Manual package list
 
-/// Direct purchase rows for the configured products. The RevenueCat Paywall
-/// is the primary purchase surface; this list keeps the store functional and
-/// inspectable straight from settings.
+/// Direct purchase rows for the configured products — the app's only
+/// purchase surface, fully local SwiftUI with no remote configuration.
 private struct PackagePurchaseRow: View {
     let title: String
     let package: Package?
@@ -132,9 +97,8 @@ struct ProUpgradeSheet: View {
 
 // MARK: - Settings pane
 
-/// Full subscription pane: status, paywall entry, per-product purchase,
-/// management and restore. Hosted by the macOS Settings scene / Pro window
-/// and by the iPad pro sheet.
+/// Full subscription pane: status, per-product purchase and restore. Hosted
+/// by the macOS Settings scene / Pro window and by the iPad pro sheet.
 struct SubscriptionSettingsView: View {
     @State private var manager = SubscriptionManager.shared
     @State private var isPurchasing = false
@@ -156,7 +120,6 @@ struct SubscriptionSettingsView: View {
             }
 
             Section {
-                ManageSubscriptionButton()
                 Button {
                     Task { await runRestore() }
                 } label: {

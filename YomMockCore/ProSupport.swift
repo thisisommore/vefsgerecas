@@ -14,7 +14,7 @@ enum ProConstants {
     #if DEBUG
         /// Debug builds use the Test Store key — purchases are simulated,
         /// no App Store Connect or sandbox account needed.
-        static let apiKey = "test_AtWicvLnZsCwNvgutrzHtxQhfpb"
+        static let apiKey = "appl_xXQkdkijNjaoMDRWDnQeEJiMBrg"
     #else
         // TODO: paste the production public SDK key (appl_...) from
         // RevenueCat Dashboard -> Apps -> YomMock -> API keys.
